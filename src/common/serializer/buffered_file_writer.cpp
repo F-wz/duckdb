@@ -2,6 +2,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/algorithm.hpp"
 #include <cstring>
+#include <iostream>
 
 namespace duckdb {
 
@@ -40,7 +41,9 @@ void BufferedFileWriter::Flush() {
 	if (offset == 0) {
 		return;
 	}
+	std::cout << "wenzhi =0=" << std::endl;
 	fs.Write(*handle, data.get(), offset);
+	std::cout << "wenzhi =1=" << std::endl;
 	total_written += offset;
 	offset = 0;
 }

@@ -262,10 +262,10 @@ void OperatorProfiler::AddTiming(const PhysicalOperator *op, double time, idx_t 
 	if (!Value::DoubleIsFinite(time)) {
 		return;
 	}
-	auto entry = timings.find(op);
-	if (entry == timings.end()) {
+	auto entry = timings_.find(op);
+	if (entry == timings_.end()) {
 		// add new entry
-		timings[op] = OperatorInformation(time, elements);
+		timings_[op] = OperatorInformation(time, elements);
 	} else {
 		// add to existing entry
 		entry->second.time += time;
@@ -274,11 +274,11 @@ void OperatorProfiler::AddTiming(const PhysicalOperator *op, double time, idx_t 
 }
 void OperatorProfiler::Flush(const PhysicalOperator *phys_op, ExpressionExecutor *expression_executor,
                              const string &name, int id) {
-	auto entry = timings.find(phys_op);
-	if (entry == timings.end()) {
+	auto entry = timings_.find(phys_op);
+	if (entry == timings_.end()) {
 		return;
 	}
-	auto &operator_timing = timings.find(phys_op)->second;
+	auto &operator_timing = timings_.find(phys_op)->second;
 	if (int(operator_timing.executors_info.size()) <= id) {
 		operator_timing.executors_info.resize(id + 1);
 	}
@@ -291,7 +291,7 @@ void QueryProfiler::Flush(OperatorProfiler &profiler) {
 	if (!IsEnabled() || !running) {
 		return;
 	}
-	for (auto &node : profiler.timings) {
+	for (auto &node : profiler.timings_) {
 		auto entry = tree_map.find(node.first);
 		D_ASSERT(entry != tree_map.end());
 
@@ -311,10 +311,10 @@ void QueryProfiler::Flush(OperatorProfiler &profiler) {
 			entry->second->info.executors_info[info_id] = move(info);
 		}
 	}
-	profiler.timings.clear();
+	profiler.timings_.clear();
 }
 
-static string DrawPadded(const string &str, idx_t width) {
+string DrawPadded(const string &str, idx_t width) {
 	if (str.size() > width) {
 		return str.substr(0, width);
 	} else {
@@ -325,7 +325,7 @@ static string DrawPadded(const string &str, idx_t width) {
 	}
 }
 
-static string RenderTitleCase(string str) {
+string RenderTitleCase(string str) {
 	str = StringUtil::Lower(str);
 	str[0] = toupper(str[0]);
 	for (idx_t i = 0; i < str.size(); i++) {
@@ -339,7 +339,7 @@ static string RenderTitleCase(string str) {
 	return str;
 }
 
-static string RenderTiming(double timing) {
+string RenderTiming(double timing) {
 	string timing_s;
 	if (timing >= 1) {
 		timing_s = StringUtil::Format("%.2f", timing);
@@ -416,7 +416,7 @@ void QueryProfiler::QueryTreeToStream(std::ostream &ss) const {
 	}
 }
 
-static string JSONSanitize(const string &text) {
+string JSONSanitize(const string &text) {
 	string result;
 	result.reserve(text.size());
 	for (idx_t i = 0; i < text.size(); i++) {
@@ -451,7 +451,7 @@ static string JSONSanitize(const string &text) {
 }
 
 // Print a row
-static void PrintRow(std::ostream &ss, const string &annotation, int id, const string &name, double time,
+void PrintRow(std::ostream &ss, const string &annotation, int id, const string &name, double time,
                      int sample_counter, int tuple_counter, const string &extra_info, int depth) {
 	ss << string(depth * 3, ' ') << " {\n";
 	ss << string(depth * 3, ' ') << "   \"annotation\": \"" + JSONSanitize(annotation) + "\",\n";
@@ -470,7 +470,7 @@ static void PrintRow(std::ostream &ss, const string &annotation, int id, const s
 	ss << string(depth * 3, ' ') << " },\n";
 }
 
-static void ExtractFunctions(std::ostream &ss, ExpressionInfo &info, int &fun_id, int depth) {
+void ExtractFunctions(std::ostream &ss, ExpressionInfo &info, int &fun_id, int depth) {
 	if (info.hasfunction) {
 		double time = info.sample_tuples_count == 0 ? 0 : int(info.function_time) / double(info.sample_tuples_count);
 		PrintRow(ss, "Function", fun_id++, info.function_name, time, info.sample_tuples_count, info.tuples_count, "",
@@ -485,7 +485,7 @@ static void ExtractFunctions(std::ostream &ss, ExpressionInfo &info, int &fun_id
 	}
 }
 
-static void ToJSONRecursive(QueryProfiler::TreeNode &node, std::ostream &ss, int depth = 1) {
+void ToJSONRecursive(QueryProfiler::TreeNode &node, std::ostream &ss, int depth) {
 	ss << string(depth * 3, ' ') << " {\n";
 	ss << string(depth * 3, ' ') << "   \"name\": \"" + JSONSanitize(node.name) + "\",\n";
 	ss << string(depth * 3, ' ') << "   \"timing\":" + to_string(node.info.time) + ",\n";

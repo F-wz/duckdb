@@ -108,6 +108,14 @@ public:
 	~OperatorProfiler() {
 	}
 
+	inline unordered_map<const PhysicalOperator *, OperatorInformation>& timings() {
+		return this->timings_;
+	}
+
+	inline const unordered_map<const PhysicalOperator *, OperatorInformation>& timings() const {
+		return this->timings_;
+	}
+
 private:
 	void AddTiming(const PhysicalOperator *op, double time, idx_t elements);
 
@@ -118,7 +126,7 @@ private:
 	//! The stack of Physical Operators that are currently active
 	const PhysicalOperator *active_operator;
 	//! A mapping of physical operators to recorded timings
-	unordered_map<const PhysicalOperator *, OperatorInformation> timings;
+	unordered_map<const PhysicalOperator *, OperatorInformation> timings_;
 };
 
 //! The QueryProfiler can be used to measure timings of queries
@@ -256,4 +264,20 @@ public:
 		this->prev_profilers_size = size;
 	}
 };
+
+string DrawPadded(const string &str, idx_t width);
+
+string RenderTitleCase(string str);
+
+string RenderTiming(double timing);
+
+string JSONSanitize(const string &text);
+
+void PrintRow(std::ostream &ss, const string &annotation, int id, const string &name, double time,
+              int sample_counter, int tuple_counter, const string &extra_info, int depth);
+
+void ExtractFunctions(std::ostream &ss, ExpressionInfo &info, int &fun_id, int depth);
+
+void ToJSONRecursive(QueryProfiler::TreeNode &node, std::ostream &ss, int depth = 1);
+
 } // namespace duckdb

@@ -47,6 +47,7 @@ private:
 private:
 	void CheckExecutableInternal(ClientContextLock &lock);
 
+public:
 	PendingExecutionResult ExecuteTaskInternal(ClientContextLock &lock);
 	unique_ptr<QueryResult> ExecuteInternal(ClientContextLock &lock);
 	unique_ptr<ClientContextLock> LockContext();
