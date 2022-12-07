@@ -141,6 +141,12 @@ public:
 	DUCKDB_API DBConfig(std::unordered_map<string, string> &config_dict, bool read_only);
 	DUCKDB_API ~DBConfig();
 
+	DBConfig(const DBConfig&) = delete;
+	DBConfig(DBConfig&&);
+
+	DBConfig& operator=(const DBConfig&) = delete;
+	DBConfig& operator=(DBConfig&&);
+
 	mutex config_lock;
 	//! Replacement table scans are automatically attempted when a table name cannot be found in the schema
 	vector<ReplacementScan> replacement_scans;

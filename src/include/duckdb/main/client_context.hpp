@@ -24,6 +24,7 @@
 #include "duckdb/main/client_config.hpp"
 #include "duckdb/main/external_dependencies.hpp"
 #include "duckdb/common/preserved_error.hpp"
+#include "duckdb/common/progress_bar.hpp"
 
 namespace duckdb {
 class Appender;
@@ -40,9 +41,21 @@ class QueryProfiler;
 class ClientContextLock;
 struct CreateScalarFunctionInfo;
 class ScalarFunctionCatalogEntry;
-struct ActiveQueryContext;
 struct ParserOptions;
 struct ClientData;
+
+struct ActiveQueryContext {
+	//! The query that is currently being executed
+	string query;
+	//! The currently open result
+	BaseQueryResult *open_result = nullptr;
+	//! Prepared statement data
+	shared_ptr<PreparedStatementData> prepared;
+	//! The query executor
+	unique_ptr<Executor> executor;
+	//! The progress bar
+	unique_ptr<ProgressBar> progress_bar;
+};
 
 struct PendingQueryParameters {
 	//! Prepared statement parameters (if any)

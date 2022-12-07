@@ -46,19 +46,6 @@
 
 namespace duckdb {
 
-struct ActiveQueryContext {
-	//! The query that is currently being executed
-	string query;
-	//! The currently open result
-	BaseQueryResult *open_result = nullptr;
-	//! Prepared statement data
-	shared_ptr<PreparedStatementData> prepared;
-	//! The query executor
-	unique_ptr<Executor> executor;
-	//! The progress bar
-	unique_ptr<ProgressBar> progress_bar;
-};
-
 ClientContext::ClientContext(shared_ptr<DatabaseInstance> database)
     : db(move(database)), transaction(db->GetTransactionManager(), *this), interrupted(false),
       client_data(make_unique<ClientData>(*this)) {

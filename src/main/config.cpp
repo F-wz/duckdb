@@ -205,4 +205,38 @@ bool DBConfig::operator!=(const DBConfig &other) {
 	return !(other.options == options);
 }
 
+DBConfig::DBConfig(DBConfig&& db_config) 
+  :	replacement_scans		(std::move(db_config.replacement_scans)),
+	replacement_opens		(std::move(db_config.replacement_opens)),
+	extension_parameters	(std::move(db_config.extension_parameters)),
+	file_system				(std::move(db_config.file_system)),
+	allocator				(std::move(db_config.allocator)),
+	options					(std::move(db_config.options)),
+	parser_extensions		(std::move(db_config.parser_extensions)),
+	optimizer_extensions	(std::move(db_config.optimizer_extensions)),
+	error_manager			(std::move(db_config.error_manager)),
+	default_allocator		(std::move(db_config.default_allocator)),
+	operator_extensions		(std::move(db_config.operator_extensions)),
+	compression_functions	(std::move(db_config.compression_functions)),
+	cast_functions			(std::move(db_config.cast_functions)) {
+	return;
+}
+
+DBConfig& DBConfig::operator=(DBConfig&& db_config) {
+	this->replacement_scans		= std::move(db_config.replacement_scans);
+	this->replacement_opens		= std::move(db_config.replacement_opens);
+	this->extension_parameters	= std::move(db_config.extension_parameters);
+	this->file_system			= std::move(db_config.file_system);
+	this->allocator				= std::move(db_config.allocator);
+	this->options				= std::move(db_config.options);
+	this->parser_extensions		= std::move(db_config.parser_extensions);
+	this->optimizer_extensions	= std::move(db_config.optimizer_extensions);
+	this->error_manager			= std::move(db_config.error_manager);
+	this->default_allocator		= std::move(db_config.default_allocator);
+	this->operator_extensions	= std::move(db_config.operator_extensions);
+	this->compression_functions	= std::move(db_config.compression_functions);
+	this->cast_functions		= std::move(db_config.cast_functions);
+	return *this;
+}
+
 } // namespace duckdb
