@@ -27,12 +27,12 @@ public:
 	DUCKDB_API void Set(const string &new_value, bool is_set_schema);
 	DUCKDB_API void Set(vector<string> &new_paths, bool is_set_schema = false);
 
-	DUCKDB_API const vector<string> &Get();
-	DUCKDB_API const vector<string> &GetSetPaths() {
+	DUCKDB_API const vector<string> &Get() const ;
+	DUCKDB_API const vector<string> &GetSetPaths() const {
 		return set_paths;
 	}
-	DUCKDB_API const string &GetDefault();
-	DUCKDB_API const string &GetOrDefault(const string &name);
+	DUCKDB_API const string &GetDefault() const;
+	DUCKDB_API const string &GetOrDefault(const string &name) const;
 
 private:
 	static vector<string> ParsePaths(const string &value);

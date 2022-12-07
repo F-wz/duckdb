@@ -2,6 +2,8 @@
 #include "duckdb/common/to_string.hpp"
 #include "duckdb/main/client_context.hpp"
 
+#include <iostream>
+
 namespace duckdb {
 
 MaterializedQueryResult::MaterializedQueryResult(StatementType statement_type, StatementProperties properties,
@@ -17,6 +19,7 @@ MaterializedQueryResult::MaterializedQueryResult(PreservedError error)
 }
 
 string MaterializedQueryResult::ToString() {
+	std::cout << "wenzhi in MaterializedQueryResult" << std::endl;
 	string result;
 	if (success) {
 		result = HeaderToString();

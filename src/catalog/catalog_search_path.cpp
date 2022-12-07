@@ -31,15 +31,15 @@ void CatalogSearchPath::Set(const string &new_value, bool is_set_schema) {
 	Set(new_paths, is_set_schema);
 }
 
-const vector<string> &CatalogSearchPath::Get() {
+const vector<string> &CatalogSearchPath::Get() const {
 	return paths;
 }
 
-const string &CatalogSearchPath::GetOrDefault(const string &name) {
+const string &CatalogSearchPath::GetOrDefault(const string &name) const {
 	return name == INVALID_SCHEMA ? GetDefault() : name; // NOLINT
 }
 
-const string &CatalogSearchPath::GetDefault() {
+const string &CatalogSearchPath::GetDefault() const {
 	const auto &paths = Get();
 	D_ASSERT(paths.size() >= 2);
 	D_ASSERT(paths[0] == TEMP_SCHEMA);
