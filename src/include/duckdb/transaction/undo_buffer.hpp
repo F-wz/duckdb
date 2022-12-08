@@ -16,6 +16,8 @@ namespace duckdb {
 
 class WriteAheadLog;
 
+constexpr uint32_t UNDO_ENTRY_HEADER_SIZE = sizeof(UndoFlags) + sizeof(uint32_t);
+
 //! The undo buffer of a transaction is used to hold previous versions of tuples
 //! that might be required in the future (because of rollbacks or previous
 //! transactions accessing them)

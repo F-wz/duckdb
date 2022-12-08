@@ -139,6 +139,7 @@ void Transaction::Cleanup() {
 	undo_buffer.Cleanup();
 }
 
+template<>
 ValidChecker &ValidChecker::Get(Transaction &transaction) {
 	return transaction.transaction_validity;
 }

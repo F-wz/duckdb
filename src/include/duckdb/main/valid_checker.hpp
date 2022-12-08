@@ -21,7 +21,8 @@ public:
 	ValidChecker();
 
 	DUCKDB_API static ValidChecker &Get(DatabaseInstance &db);
-	DUCKDB_API static ValidChecker &Get(Transaction &transaction);
+	template <typename TransactionType>
+	DUCKDB_API static ValidChecker &Get(TransactionType &transaction);
 
 	DUCKDB_API void Invalidate(string error);
 	DUCKDB_API bool IsInvalidated();
