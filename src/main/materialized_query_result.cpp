@@ -22,9 +22,13 @@ string MaterializedQueryResult::ToString() {
 	std::cout << "wenzhi in MaterializedQueryResult" << std::endl;
 	string result;
 	if (success) {
+		std::cout << "wenzhi #0#" << std::endl;
 		result = HeaderToString();
+		std::cout << "wenzhi #1#" << std::endl;
 		result += "[ Rows: " + to_string(collection->Count()) + "]\n";
+		std::cout << "wenzhi #2#" << std::endl;
 		auto &coll = Collection();
+		std::cout << "wenzhi #3#" << std::endl;
 		for (auto &row : coll.Rows()) {
 			for (idx_t col_idx = 0; col_idx < coll.ColumnCount(); col_idx++) {
 				if (col_idx > 0) {
@@ -37,6 +41,7 @@ string MaterializedQueryResult::ToString() {
 		}
 		result += "\n";
 	} else {
+		std::cout << "wenzhi GetError" << std::endl;
 		result = GetError() + "\n";
 	}
 	return result;

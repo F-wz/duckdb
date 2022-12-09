@@ -27,7 +27,31 @@ class Task;
 
 struct PipelineEventStack;
 struct ProducerToken;
-struct ScheduleEventData;
+
+struct PipelineEventStack {
+	Event *pipeline_initialize_event;
+	Event *pipeline_event;
+	Event *pipeline_finish_event;
+	Event *pipeline_complete_event;
+};
+
+using event_map_t = unordered_map<const Pipeline *, PipelineEventStack>;
+
+struct ScheduleEventData {
+	ScheduleEventData(const vector<shared_ptr<MetaPipeline>> &meta_pipelines, 
+							vector<shared_ptr<Event>> 		 &events,
+	                  bool initial_schedule)
+	    : meta_pipelines(meta_pipelines), 
+				  events(events), 
+		initial_schedule(initial_schedule) {
+		return;
+	}
+
+	const vector<shared_ptr<MetaPipeline>> &meta_pipelines;
+	vector<shared_ptr<Event>> &events;
+	bool initial_schedule;
+	event_map_t event_map;
+};
 
 class Executor {
 	friend class Pipeline;

@@ -143,7 +143,7 @@ Pipeline *MetaPipeline::CreateUnionPipeline(Pipeline &current, bool order_matter
 	state.SetPipelineSink(*union_pipeline, sink, 0);
 
 	// 'union_pipeline' inherits ALL dependencies of 'current' (within this MetaPipeline, and across MetaPipelines)
-	union_pipeline->dependencies = current.dependencies;
+	union_pipeline->dependencies() = current.dependencies();
 	auto current_deps = GetDependencies(&current);
 	if (current_deps) {
 		dependencies[union_pipeline] = *current_deps;
@@ -159,7 +159,7 @@ Pipeline *MetaPipeline::CreateUnionPipeline(Pipeline &current, bool order_matter
 
 void MetaPipeline::CreateChildPipeline(Pipeline &current, PhysicalOperator *op, Pipeline *last_pipeline) {
 	// rule 2: 'current' must be fully built (down to the source) before creating the child pipeline
-	D_ASSERT(current.source);
+	D_ASSERT(current.source());
 	if (HasRecursiveCTE()) {
 		throw NotImplementedException("Child pipelines are not supported in recursive CTEs yet");
 	}

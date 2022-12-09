@@ -37,27 +37,6 @@ void Executor::AddEvent(shared_ptr<Event> event) {
 	events.push_back(move(event));
 }
 
-struct PipelineEventStack {
-	Event *pipeline_initialize_event;
-	Event *pipeline_event;
-	Event *pipeline_finish_event;
-	Event *pipeline_complete_event;
-};
-
-using event_map_t = unordered_map<const Pipeline *, PipelineEventStack>;
-
-struct ScheduleEventData {
-	ScheduleEventData(const vector<shared_ptr<MetaPipeline>> &meta_pipelines, vector<shared_ptr<Event>> &events,
-	                  bool initial_schedule)
-	    : meta_pipelines(meta_pipelines), events(events), initial_schedule(initial_schedule) {
-	}
-
-	const vector<shared_ptr<MetaPipeline>> &meta_pipelines;
-	vector<shared_ptr<Event>> &events;
-	bool initial_schedule;
-	event_map_t event_map;
-};
-
 void Executor::SchedulePipeline(const shared_ptr<MetaPipeline> &meta_pipeline, ScheduleEventData &event_data) {
 	D_ASSERT(meta_pipeline);
 	auto &events = event_data.events;
@@ -149,7 +128,7 @@ void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 	auto &event_map = event_data.event_map;
 	for (auto &entry : event_map) {
 		auto pipeline = entry.first;
-		for (auto &dependency : pipeline->dependencies) {
+		for (auto &dependency : pipeline->dependencies()) {
 			auto dep = dependency.lock();
 			D_ASSERT(dep);
 			auto event_map_entry = event_map.find(dep.get());
@@ -443,15 +422,15 @@ shared_ptr<Pipeline> Executor::CreateChildPipeline(Pipeline *current, PhysicalOp
 	// found another operator that is a source, schedule a child pipeline
 	// 'op' is the source, and the sink is the same
 	auto child_pipeline = make_shared<Pipeline>(*this);
-	child_pipeline->sink = current->sink;
-	child_pipeline->source = op;
+	child_pipeline->set_sink(current->sink());
+	child_pipeline->set_source(op);
 
 	// the child pipeline has the same operators up until 'op'
-	for (auto current_op : current->operators) {
+	for (auto current_op : current->operators()) {
 		if (current_op == op) {
 			break;
 		}
-		child_pipeline->operators.push_back(current_op);
+    	child_pipeline->add_operators(current_op);
 	}
 
 	return child_pipeline;

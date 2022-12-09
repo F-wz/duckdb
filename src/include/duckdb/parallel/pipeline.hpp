@@ -82,16 +82,51 @@ public:
 	//! Returns a list of all operators (including source and sink) involved in this pipeline
 	vector<PhysicalOperator *> GetOperators() const;
 
-	PhysicalOperator *GetSink() {
-		return sink;
+	PhysicalOperator *GetSink() const {
+		return this->sink_;
 	}
 
-	PhysicalOperator *GetSource() {
-		return source;
+	PhysicalOperator *GetSource() const {
+		return this->source_;
 	}
 
 	//! Returns whether any of the operators in the pipeline care about preserving insertion order
 	bool IsOrderDependent() const;
+
+	inline const vector<weak_ptr<Pipeline>>& dependencies() const {
+		return this->dependencies_;
+	}
+
+	inline vector<weak_ptr<Pipeline>>& dependencies() {
+		return this->dependencies_;
+	}
+
+	inline PhysicalOperator *sink() const {
+		return this->sink_;
+	}
+
+	inline PhysicalOperator *source() const {
+		return this->source_;
+	}
+
+	inline void set_sink(PhysicalOperator *sink) {
+		this->sink_ = sink;
+		return;
+	}
+
+	inline void set_source(PhysicalOperator *source) {
+		this->source_ = source;
+		return;
+	}
+
+	inline void add_operators(PhysicalOperator *op) {
+		this->operators_.emplace_back(op);
+		return;
+	}
+
+	inline const vector<PhysicalOperator *> &operators() const {
+		return this->operators_;
+	}
 
 private:
 	//! Whether or not the pipeline has been readied
@@ -99,11 +134,11 @@ private:
 	//! Whether or not the pipeline has been initialized
 	atomic<bool> initialized;
 	//! The source of this pipeline
-	PhysicalOperator *source = nullptr;
+	PhysicalOperator *source_ = nullptr;
 	//! The chain of intermediate operators
-	vector<PhysicalOperator *> operators;
+	vector<PhysicalOperator *> operators_;
 	//! The sink (i.e. destination) for data; this is e.g. a hash table to-be-built
-	PhysicalOperator *sink = nullptr;
+	PhysicalOperator *sink_ = nullptr;
 
 	//! The global source state
 	unique_ptr<GlobalSourceState> source_state;
@@ -111,7 +146,7 @@ private:
 	//! The parent pipelines (i.e. pipelines that are dependent on this pipeline to finish)
 	vector<weak_ptr<Pipeline>> parents;
 	//! The dependencies of this pipeline
-	vector<weak_ptr<Pipeline>> dependencies;
+	vector<weak_ptr<Pipeline>> dependencies_;
 
 	//! The base batch index of this pipeline
 	idx_t base_batch_index = 0;
