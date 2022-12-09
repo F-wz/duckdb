@@ -57,7 +57,8 @@ void PreparedStatementData::Bind(vector<Value> values) {
 		if (!values[i].DefaultTryCastAs(it.second->return_type)) {
 			throw BinderException(
 			    "Type mismatch for binding parameter with index %llu, expected type %s but got type %s", i + 1,
-			    it.second->return_type.ToString().c_str(), values[i].type().ToString().c_str());
+			    it.second->return_type.ToString().c_str(), 
+				      values[i].type().ToString().c_str());
 		}
 		it.second->value = values[i];
 	}
