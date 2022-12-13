@@ -16,7 +16,7 @@
 
 namespace duckdb {
 
-static void InvertPercentileFractions(ClientContext &context, unique_ptr<ParsedExpression> &fractions) {
+void InvertPercentileFractions(ClientContext &context, unique_ptr<ParsedExpression> &fractions) {
 	D_ASSERT(fractions.get());
 	D_ASSERT(fractions->expression_class == ExpressionClass::BOUND_EXPRESSION);
 	auto &bound = (BoundExpression &)*fractions;

@@ -51,4 +51,7 @@ public:
 	void Serialize(FieldWriter &writer) const override;
 	static unique_ptr<Expression> Deserialize(ExpressionDeserializationState &state, FieldReader &reader);
 };
+
+void InvertPercentileFractions(ClientContext &context, unique_ptr<ParsedExpression> &fractions);
+
 } // namespace duckdb

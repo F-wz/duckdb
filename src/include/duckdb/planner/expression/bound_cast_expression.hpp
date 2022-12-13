@@ -39,7 +39,8 @@ public:
 	                                            const LogicalType &target_type, bool try_cast = false);
 	//! Returns true if a cast is invertible (i.e. CAST(s -> t -> s) = s for all values of s). This is not true for e.g.
 	//! boolean casts, because that can be e.g. -1 -> TRUE -> 1. This is necessary to prevent some optimizer bugs.
-	static bool CastIsInvertible(const LogicalType &source_type, const LogicalType &target_type);
+	static bool CastIsInvertible(const LogicalType &source_type, 
+								 const LogicalType &target_type);
 
 	string ToString() const override;
 

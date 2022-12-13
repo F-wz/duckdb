@@ -74,7 +74,8 @@ struct ListBoundCastData : public BoundCastData {
 	}
 
 	BoundCastInfo child_cast_info;
-	static unique_ptr<BoundCastData> BindListToListCast(BindCastInput &input, const LogicalType &source,
+	static unique_ptr<BoundCastData> BindListToListCast(BindCastInput &input, 
+														const LogicalType &source,
 	                                                    const LogicalType &target);
 
 public:
