@@ -273,9 +273,8 @@ OperatorResultType PhysicalNestedLoopJoin::ExecuteInternal(ExecutionContext &con
 		if (!EmptyResultIfRHSIsEmpty()) {
 			ConstructEmptyJoinResult(join_type, gstate.has_null, input, chunk);
 			return OperatorResultType::NEED_MORE_INPUT;
-		} else {
-			return OperatorResultType::FINISHED;
 		}
+		return OperatorResultType::FINISHED;
 	}
 
 	switch (join_type) {
@@ -382,7 +381,8 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 		right_payload.Verify();
 
 		// now perform the join
-		SelectionVector lvector(STANDARD_VECTOR_SIZE), rvector(STANDARD_VECTOR_SIZE);
+		SelectionVector lvector(STANDARD_VECTOR_SIZE), 
+						rvector(STANDARD_VECTOR_SIZE);
 		match_count = NestedLoopJoinInner::Perform(state.left_tuple, state.right_tuple, state.left_condition,
 		                                           right_condition, lvector, rvector, conditions);
 		// we have finished resolving the join conditions

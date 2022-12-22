@@ -285,9 +285,10 @@ void DataChunk::Slice(DataChunk &other, const SelectionVector &sel, idx_t count_
 			// already a dictionary! merge the dictionaries
 			data[col_offset + c].Reference(other.data[c]);
 			data[col_offset + c].Slice(sel, count_p, merge_cache);
-		} else {
-			data[col_offset + c].Slice(other.data[c], sel, count_p);
+			continue;
 		}
+		// not a dictionary
+		data[col_offset + c].Slice(other.data[c], sel, count_p);
 	}
 }
 
