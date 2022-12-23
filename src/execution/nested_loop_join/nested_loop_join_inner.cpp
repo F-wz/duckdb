@@ -164,8 +164,11 @@ idx_t NestedLoopJoinComparisonSwitch(Vector &left, Vector &right, idx_t left_siz
 	}
 }
 
-idx_t NestedLoopJoinInner::Perform(idx_t &lpos, idx_t &rpos, DataChunk &left_conditions, DataChunk &right_conditions,
-                                   SelectionVector &lvector, SelectionVector &rvector,
+idx_t NestedLoopJoinInner::Perform(idx_t &lpos, idx_t &rpos, 
+								   DataChunk &left_conditions, 
+								   DataChunk &right_conditions,
+                                   SelectionVector &lvector, 
+								   SelectionVector &rvector,
                                    const vector<JoinCondition> &conditions) {
 	D_ASSERT(left_conditions.ColumnCount() == right_conditions.ColumnCount());
 	if (lpos >= left_conditions.size() || rpos >= right_conditions.size()) {
@@ -174,7 +177,10 @@ idx_t NestedLoopJoinInner::Perform(idx_t &lpos, idx_t &rpos, DataChunk &left_con
 	// for the first condition, lvector and rvector are not set yet
 	// we initialize them using the InitialNestedLoopJoin
 	idx_t match_count = NestedLoopJoinComparisonSwitch<InitialNestedLoopJoin>(
-	    left_conditions.data[0], right_conditions.data[0], left_conditions.size(), right_conditions.size(), lpos, rpos,
+	     left_conditions.data[0], 
+		right_conditions.data[0], 
+		 left_conditions.size(), 
+		right_conditions.size(), lpos, rpos,
 	    lvector, rvector, 0, conditions[0].comparison);
 	// now resolve the rest of the conditions
 	for (idx_t i = 1; i < conditions.size(); i++) {

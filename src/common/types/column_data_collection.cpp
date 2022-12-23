@@ -787,8 +787,10 @@ void ColumnDataCollection::InitializeScanChunk(ColumnDataScanState &state, DataC
 	chunk.Initialize(allocator->GetAllocator(), chunk_types);
 }
 
-bool ColumnDataCollection::NextScanIndex(ColumnDataScanState &state, idx_t &chunk_index, idx_t &segment_index,
-                                         idx_t &row_index) const {
+bool ColumnDataCollection::NextScanIndex(ColumnDataScanState &state, 
+                                         idx_t   &chunk_index, 
+										 idx_t &segment_index,
+                                         idx_t     &row_index) const {
 	row_index = state.current_row_index = state.next_row_index;
 	// check if we still have collections to scan
 	if (state.segment_index >= segments.size()) {
@@ -805,14 +807,17 @@ bool ColumnDataCollection::NextScanIndex(ColumnDataScanState &state, idx_t &chun
 			return false;
 		}
 	}
-	state.next_row_index += segments[state.segment_index]->chunk_data[state.chunk_index].count;
+	state.next_row_index += segments[state.segment_index]
+						->chunk_data[state.  chunk_index].count;
 	segment_index = state.segment_index;
-	chunk_index = state.chunk_index++;
+	  chunk_index = state.  chunk_index++;
 	return true;
 }
 
 void ColumnDataCollection::ScanAtIndex(ColumnDataParallelScanState &state, ColumnDataLocalScanState &lstate,
-                                       DataChunk &result, idx_t chunk_index, idx_t segment_index,
+                                       DataChunk &result, 
+									   idx_t chunk_index, 
+									   idx_t segment_index,
                                        idx_t row_index) const {
 	if (segment_index != lstate.current_segment_index) {
 		lstate.current_chunk_state.handles.clear();
@@ -831,14 +836,18 @@ bool ColumnDataCollection::Scan(ColumnDataScanState &state, DataChunk &result) c
 	idx_t chunk_index;
 	idx_t segment_index;
 	idx_t row_index;
-	if (!NextScanIndex(state, chunk_index, segment_index, row_index)) {
+	if (!NextScanIndex(state, chunk_index, 
+							segment_index, 
+							    row_index)) {
 		return false;
 	}
 
 	// found a chunk to scan -> scan it
 	auto &segment = *segments[segment_index];
-	state.current_chunk_state.properties = state.properties;
-	segment.ReadChunk(chunk_index, state.current_chunk_state, result, state.column_ids);
+	state.current_chunk_state.properties 
+					  = state.properties;
+	segment.ReadChunk(chunk_index, state.current_chunk_state, 
+						   result, state.column_ids);
 	result.Verify();
 	return true;
 }

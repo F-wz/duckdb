@@ -143,8 +143,10 @@ public:
 class NestedLoopJoinGlobalState : public GlobalSinkState {
 public:
 	explicit NestedLoopJoinGlobalState(ClientContext &context, const PhysicalNestedLoopJoin &op)
-	    : right_payload_data(context, op.children[1]->types), right_condition_data(context, op.GetJoinTypes()),
-	      has_null(false), right_outer(IsRightOuterJoin(op.join_type)) {
+	    : right_payload_data(context, op.children[1]->types), 
+		right_condition_data(context, op.GetJoinTypes()),
+	                has_null(false), 
+				 right_outer(IsRightOuterJoin(op.join_type)) {
 	}
 
 	mutex nj_lock;
@@ -248,7 +250,7 @@ public:
 	DataChunk right_condition;
 	DataChunk right_payload;
 
-	idx_t left_tuple;
+	idx_t  left_tuple;
 	idx_t right_tuple;
 
 	OuterJoinMarker left_outer;
@@ -332,15 +334,18 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 	do {
 		if (state.fetch_next_right) {
 			// we exhausted the chunk on the right: move to the next chunk on the right
-			state.left_tuple = 0;
+			state. left_tuple = 0;
 			state.right_tuple = 0;
 			state.fetch_next_right = false;
 			// check if we exhausted all chunks on the RHS
-			if (gstate.right_condition_data.Scan(state.condition_scan_state, state.right_condition)) {
-				if (!gstate.right_payload_data.Scan(state.payload_scan_state, state.right_payload)) {
+			if (gstate.right_condition_data.Scan(state.condition_scan_state, 
+												 state.right_condition)) {
+				if (!gstate.right_payload_data.Scan(state.payload_scan_state, 
+													state.right_payload)) {
 					throw InternalException("Nested loop join: payload and conditions are unaligned!?");
 				}
-				if (state.right_condition.size() != state.right_payload.size()) {
+				if (state.right_condition.size() 
+				 != state.right_payload  .size()) {
 					throw InternalException("Nested loop join: payload and conditions are unaligned!?");
 				}
 			} else {
@@ -360,8 +365,8 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 			state.left_condition.Reset();
 			state.lhs_executor.Execute(input, state.left_condition);
 
-			state.left_tuple = 0;
-			state.right_tuple = 0;
+			 state. left_tuple = 0;
+			 state.right_tuple = 0;
 			gstate.right_condition_data.InitializeScan(state.condition_scan_state);
 			gstate.right_condition_data.Scan(state.condition_scan_state, state.right_condition);
 
@@ -371,9 +376,9 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 		}
 		// now we have a left and a right chunk that we can join together
 		// note that we only get here in the case of a LEFT, INNER or FULL join
-		auto &left_chunk = input;
+		auto  &left_chunk     = input;
 		auto &right_condition = state.right_condition;
-		auto &right_payload = state.right_payload;
+		auto &right_payload   = state.right_payload;
 
 		// sanity check
 		left_chunk.Verify();
@@ -383,13 +388,17 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 		// now perform the join
 		SelectionVector lvector(STANDARD_VECTOR_SIZE), 
 						rvector(STANDARD_VECTOR_SIZE);
-		match_count = NestedLoopJoinInner::Perform(state.left_tuple, state.right_tuple, state.left_condition,
-		                                           right_condition, lvector, rvector, conditions);
+		match_count = NestedLoopJoinInner::Perform(state. left_tuple, 
+												   state.right_tuple, 
+												   state. left_condition,
+		                                           right_condition, 
+												   lvector, 
+												   rvector, conditions);
 		// we have finished resolving the join conditions
 		if (match_count > 0) {
 			// we have matching tuples!
 			// construct the result
-			state.left_outer.SetMatches(lvector, match_count);
+			 state. left_outer.SetMatches(lvector, match_count);
 			gstate.right_outer.SetMatches(rvector, match_count, state.condition_scan_state.current_row_index);
 
 			chunk.Slice(input, lvector, match_count);
