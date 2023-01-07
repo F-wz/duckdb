@@ -126,7 +126,7 @@ void Vector::Slice(Vector &other, idx_t offset, idx_t end) {
 	auto internal_type = GetType().InternalType();
 	if (internal_type == PhysicalType::STRUCT) {
 		Vector new_vector(GetType());
-		auto &entries = StructVector::GetEntries(new_vector);
+		auto       &entries = StructVector::GetEntries(new_vector);
 		auto &other_entries = StructVector::GetEntries(other);
 		D_ASSERT(entries.size() == other_entries.size());
 		for (idx_t i = 0; i < entries.size(); i++) {
@@ -138,13 +138,14 @@ void Vector::Slice(Vector &other, idx_t offset, idx_t end) {
 			new_vector.validity = other.validity;
 		}
 		Reference(new_vector);
-	} else {
-		Reference(other);
-		if (offset > 0) {
-			data = data + GetTypeIdSize(internal_type) * offset;
-			validity.Slice(other.validity, offset, end);
-		}
+		return;
+	} 
+	Reference(other);
+	if (offset > 0) {
+		data = data + GetTypeIdSize(internal_type) * offset;
+		validity.Slice(other.validity, offset, end);
 	}
+	return;
 }
 
 void Vector::Slice(Vector &other, const SelectionVector &sel, idx_t count) {

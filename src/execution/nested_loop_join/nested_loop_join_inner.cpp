@@ -16,28 +16,36 @@ struct ComparisonOperationWrapper {
 
 struct InitialNestedLoopJoin {
 	template <class T, class OP>
-	static idx_t Operation(Vector &left, Vector &right, idx_t left_size, idx_t right_size, idx_t &lpos, idx_t &rpos,
-	                       SelectionVector &lvector, SelectionVector &rvector, idx_t current_match_count) {
+	static idx_t Operation(Vector &left, Vector &right, 
+							idx_t left_size, 
+							idx_t right_size, 
+							idx_t &lpos, 
+							idx_t &rpos,
+	                       SelectionVector &lvector, 
+						   SelectionVector &rvector, 
+						   idx_t current_match_count) {
 		// initialize phase of nested loop join
 		// fill lvector and rvector with matches from the base vectors
 		UnifiedVectorFormat left_data, right_data;
-		left.ToUnifiedFormat(left_size, left_data);
+		 left.ToUnifiedFormat( left_size,  left_data);
 		right.ToUnifiedFormat(right_size, right_data);
 
-		auto ldata = (T *)left_data.data;
+		auto ldata = (T *) left_data.data;
 		auto rdata = (T *)right_data.data;
 		idx_t result_count = 0;
 		for (; rpos < right_size; rpos++) {
 			idx_t right_position = right_data.sel->get_index(rpos);
-			bool right_is_valid = right_data.validity.RowIsValid(right_position);
+			 bool right_is_valid = right_data.validity.RowIsValid(right_position);
 			for (; lpos < left_size; lpos++) {
 				if (result_count == STANDARD_VECTOR_SIZE) {
 					// out of space!
 					return result_count;
 				}
 				idx_t left_position = left_data.sel->get_index(lpos);
-				bool left_is_valid = left_data.validity.RowIsValid(left_position);
-				if (OP::Operation(ldata[left_position], rdata[right_position], !left_is_valid, !right_is_valid)) {
+				 bool left_is_valid = left_data.validity.RowIsValid(left_position);
+				if (OP::Operation(ldata[ left_position], 
+								  rdata[right_position], !left_is_valid, 
+								  						!right_is_valid)) {
 					// emit tuple
 					lvector.set_index(result_count, lpos);
 					rvector.set_index(result_count, rpos);
@@ -62,15 +70,15 @@ struct RefineNestedLoopJoin {
 		// refine lvector and rvector based on matches of subsequent conditions (in case there are multiple conditions
 		// in the join)
 		D_ASSERT(current_match_count > 0);
-		auto ldata = (T *)left_data.data;
+		auto ldata = (T *) left_data.data;
 		auto rdata = (T *)right_data.data;
 		idx_t result_count = 0;
 		for (idx_t i = 0; i < current_match_count; i++) {
 			auto lidx = lvector.get_index(i);
 			auto ridx = rvector.get_index(i);
-			auto left_idx = left_data.sel->get_index(lidx);
+			auto  left_idx =  left_data.sel->get_index(lidx);
 			auto right_idx = right_data.sel->get_index(ridx);
-			bool left_is_valid = left_data.validity.RowIsValid(left_idx);
+			bool  left_is_valid =  left_data.validity.RowIsValid(left_idx);
 			bool right_is_valid = right_data.validity.RowIsValid(right_idx);
 			if (OP::Operation(ldata[left_idx], rdata[right_idx], !left_is_valid, !right_is_valid)) {
 				lvector.set_index(result_count, lidx);
@@ -157,8 +165,8 @@ idx_t NestedLoopJoinComparisonSwitch(Vector &left, Vector &right, idx_t left_siz
 		return NestedLoopJoinTypeSwitch<NLTYPE, ComparisonOperationWrapper<duckdb::GreaterThanEquals>>(
 		    left, right, left_size, right_size, lpos, rpos, lvector, rvector, current_match_count);
 	case ExpressionType::COMPARE_DISTINCT_FROM:
-		return NestedLoopJoinTypeSwitch<NLTYPE, duckdb::DistinctFrom>(left, right, left_size, right_size, lpos, rpos,
-		                                                              lvector, rvector, current_match_count);
+		return NestedLoopJoinTypeSwitch<NLTYPE, duckdb::DistinctFrom>(
+			left, right, left_size, right_size, lpos, rpos, lvector, rvector, current_match_count);
 	default:
 		throw NotImplementedException("Unimplemented comparison type for join!");
 	}
@@ -181,7 +189,7 @@ idx_t NestedLoopJoinInner::Perform(idx_t &lpos, idx_t &rpos,
 		right_conditions.data[0], 
 		 left_conditions.size(), 
 		right_conditions.size(), lpos, rpos,
-	    lvector, rvector, 0, conditions[0].comparison);
+	    lvector, rvector, 0, conditions[0].comparison); // wenzhi: reach here
 	// now resolve the rest of the conditions
 	for (idx_t i = 1; i < conditions.size(); i++) {
 		// check if we have run out of tuples to compare
@@ -189,12 +197,13 @@ idx_t NestedLoopJoinInner::Perform(idx_t &lpos, idx_t &rpos,
 			return 0;
 		}
 		// if not, get the vectors to compare
-		Vector &l = left_conditions.data[i];
+		Vector &l =  left_conditions.data[i];
 		Vector &r = right_conditions.data[i];
 		// then we refine the currently obtained results using the RefineNestedLoopJoin
 		match_count = NestedLoopJoinComparisonSwitch<RefineNestedLoopJoin>(
-		    l, r, left_conditions.size(), right_conditions.size(), lpos, rpos, lvector, rvector, match_count,
-		    conditions[i].comparison);
+		    l, r, left_conditions.size(), 
+			     right_conditions.size(), lpos, rpos, lvector, rvector, match_count,
+		    		   conditions[i].comparison);
 	}
 	return match_count;
 }

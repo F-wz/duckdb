@@ -14,11 +14,13 @@ unique_ptr<ExpressionState> ExpressionExecutor::InitializeState(const BoundOpera
 	return result;
 }
 
-void ExpressionExecutor::Execute(const BoundOperatorExpression &expr, ExpressionState *state,
+void ExpressionExecutor::Execute(const BoundOperatorExpression &expr, 
+													ExpressionState *state,
                                  const SelectionVector *sel, idx_t count, Vector &result) {
 	// special handling for special snowflake 'IN'
 	// IN has n children
-	if (expr.type == ExpressionType::COMPARE_IN || expr.type == ExpressionType::COMPARE_NOT_IN) {
+	if (expr.type == ExpressionType::COMPARE_IN 
+	 || expr.type == ExpressionType::COMPARE_NOT_IN) {
 		if (expr.children.size() < 2) {
 			throw Exception("IN needs at least two children");
 		}

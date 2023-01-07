@@ -79,8 +79,10 @@ void Executor::SchedulePipeline(const shared_ptr<MetaPipeline> &meta_pipeline, S
 		} else {
 			pipeline_finish_event_ptr = base_stack.pipeline_finish_event;
 		}
-		PipelineEventStack pipeline_stack {base_stack.pipeline_initialize_event, pipeline_event.get(),
-		                                   pipeline_finish_event_ptr, base_stack.pipeline_complete_event};
+		PipelineEventStack pipeline_stack {base_stack.pipeline_initialize_event, 
+													  pipeline_event.get(),
+		                                   			  pipeline_finish_event_ptr, 
+										   base_stack.pipeline_complete_event};
 		events.push_back(move(pipeline_event));
 
 		// dependencies: base_initialize -> pipeline_event -> base_finish
