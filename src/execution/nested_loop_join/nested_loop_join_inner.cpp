@@ -45,7 +45,7 @@ struct InitialNestedLoopJoin {
 				 bool left_is_valid = left_data.validity.RowIsValid(left_position);
 				if (OP::Operation(ldata[ left_position], 
 								  rdata[right_position], !left_is_valid, 
-								  						!right_is_valid)) {
+														!right_is_valid)) {
 					// emit tuple
 					lvector.set_index(result_count, lpos);
 					rvector.set_index(result_count, rpos);
