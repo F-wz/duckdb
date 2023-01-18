@@ -419,7 +419,7 @@ void Executor::Reset() {
 }
 
 shared_ptr<Pipeline> Executor::CreateChildPipeline(Pipeline *current, PhysicalOperator *op) {
-	D_ASSERT(!current->operators.empty());
+	D_ASSERT(!current->operators_.empty());
 	D_ASSERT(op->IsSource());
 	// found another operator that is a source, schedule a child pipeline
 	// 'op' is the source, and the sink is the same
