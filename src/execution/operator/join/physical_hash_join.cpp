@@ -502,7 +502,8 @@ OperatorResultType PhysicalHashJoin::ExecuteInternal(ExecutionContext &context, 
 	// perform the actual probe
 	if (sink.external) {
 		state.scan_structure = sink.hash_table->ProbeAndSpill(state.join_keys, input, *sink.probe_spill,
-		                                                      state.spill_state, state.spill_chunk);
+		                                                      state.spill_state, 
+															  state.spill_chunk);
 	} else {
 		state.scan_structure = sink.hash_table->Probe(state.join_keys);
 	}

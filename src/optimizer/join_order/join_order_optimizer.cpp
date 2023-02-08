@@ -951,9 +951,9 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 			auto comparison = (BoundComparisonExpression *)filter.get();
 			// extract the bindings that are required for the left and right side of the comparison
 			unordered_set<idx_t> left_bindings, right_bindings;
-			ExtractBindings(*comparison->left, left_bindings);
+			ExtractBindings(*comparison->left,   left_bindings);
 			ExtractBindings(*comparison->right, right_bindings);
-			GetColumnBinding(*comparison->left, filter_info->left_binding);
+			GetColumnBinding(*comparison->left,  filter_info-> left_binding);
 			GetColumnBinding(*comparison->right, filter_info->right_binding);
 			if (!left_bindings.empty() && !right_bindings.empty()) {
 				// both the left and the right side have bindings
