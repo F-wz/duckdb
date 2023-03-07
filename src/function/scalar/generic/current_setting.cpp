@@ -4,11 +4,11 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/execution/expression_executor.hpp"
-
+#include "duckdb/catalog/catalog.hpp"
 namespace duckdb {
 
 struct CurrentSettingBindData : public FunctionData {
-	explicit CurrentSettingBindData(Value value_p) : value(move(value_p)) {
+	explicit CurrentSettingBindData(Value value_p) : value(std::move(value_p)) {
 	}
 
 	Value value;
@@ -51,7 +51,7 @@ unique_ptr<FunctionData> CurrentSettingBind(ClientContext &context, ScalarFuncti
 	auto key = StringUtil::Lower(key_str);
 	Value val;
 	if (!context.TryGetCurrentSetting(key, val)) {
-		throw InvalidInputException("unrecognized configuration parameter \"%s\"", key_str);
+		throw Catalog::UnrecognizedConfigurationError(context, key);
 	}
 
 	bound_function.return_type = val.type();

@@ -44,6 +44,7 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 	private boolean returnsChangedRows = false;
 	private boolean returnsNothing = false;
 	private boolean returnsResultSet = false;
+	boolean closeOnCompletion = false;
 	private Object[] params = new Object[0];
 	private DuckDBResultSetMetaData meta = null;
 
@@ -74,9 +75,9 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 		this.conn.transactionRunning = true;
 
 		// Start transaction via Statement
-		Statement s = conn.createStatement();
-		s.execute("BEGIN TRANSACTION;");
-		s.close();
+		try (Statement s = conn.createStatement()) {
+			s.execute("BEGIN TRANSACTION;");
+		}
 	}
 
 	private void prepare(String sql) throws SQLException {
@@ -96,6 +97,9 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 		meta = null;
 		params = null;
 
+		if (select_result != null) {
+			select_result.close();
+		}
 		select_result = null;
 		update_result = 0;
 
@@ -124,6 +128,9 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 		}
 
 		ByteBuffer result_ref = null;
+		if (select_result != null) {
+			select_result.close();
+		}
 		select_result = null;
 
 		try {
@@ -138,6 +145,7 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 				select_result.close();
 			}
 			else if (result_ref != null) {
+				DuckDBNative.duckdb_jdbc_free_result(result_ref);
 				result_ref = null;
 			}
 			close();
@@ -224,7 +232,7 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 		} else if (x instanceof LocalDateTime) {
 			x = new DuckDBTimestamp((LocalDateTime) x);
 		} else if (x instanceof OffsetDateTime) {
-			x = new DuckDBTimestamp((OffsetDateTime) x);
+			x = new DuckDBTimestampTZ((OffsetDateTime) x);
 		}
 		params[parameterIndex - 1] = x;
 	}
@@ -499,12 +507,14 @@ public class DuckDBPreparedStatement implements PreparedStatement {
 
 	@Override
 	public void closeOnCompletion() throws SQLException {
-		throw new SQLFeatureNotSupportedException("closeOnCompletion");
+		if (isClosed()) throw new SQLException("Statement is closed");
+		closeOnCompletion = true;
 	}
 
 	@Override
 	public boolean isCloseOnCompletion() throws SQLException {
-		return false;
+		if (isClosed()) throw new SQLException("Statement is closed");
+		return closeOnCompletion;
 	}
 
 	@Override

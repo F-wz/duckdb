@@ -9,35 +9,40 @@
 #include "duckdb/function/scalar/date_functions.hpp"
 #include "duckdb/function/scalar/nested_functions.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
-#include "duckdb/storage/statistics/numeric_statistics.hpp"
+
 #include "duckdb/common/field_writer.hpp"
 
 namespace duckdb {
 
 bool TryGetDatePartSpecifier(const string &specifier_p, DatePartSpecifier &result) {
 	auto specifier = StringUtil::Lower(specifier_p);
-	if (specifier == "year" || specifier == "y" || specifier == "years") {
+	if (specifier == "year" || specifier == "yr" || specifier == "y" || specifier == "years" || specifier == "yrs") {
 		result = DatePartSpecifier::YEAR;
 	} else if (specifier == "month" || specifier == "mon" || specifier == "months" || specifier == "mons") {
 		result = DatePartSpecifier::MONTH;
 	} else if (specifier == "day" || specifier == "days" || specifier == "d" || specifier == "dayofmonth") {
 		result = DatePartSpecifier::DAY;
-	} else if (specifier == "decade" || specifier == "decades") {
+	} else if (specifier == "decade" || specifier == "dec" || specifier == "decades" || specifier == "decs") {
 		result = DatePartSpecifier::DECADE;
-	} else if (specifier == "century" || specifier == "centuries") {
+	} else if (specifier == "century" || specifier == "cent" || specifier == "centuries" || specifier == "c") {
 		result = DatePartSpecifier::CENTURY;
-	} else if (specifier == "millennium" || specifier == "millennia" || specifier == "millenium") {
+	} else if (specifier == "millennium" || specifier == "mil" || specifier == "millenniums" ||
+	           specifier == "millennia" || specifier == "mils" || specifier == "millenium") {
 		result = DatePartSpecifier::MILLENNIUM;
-	} else if (specifier == "microseconds" || specifier == "microsecond") {
+	} else if (specifier == "microseconds" || specifier == "microsecond" || specifier == "us" || specifier == "usec" ||
+	           specifier == "usecs" || specifier == "usecond" || specifier == "useconds") {
 		result = DatePartSpecifier::MICROSECONDS;
 	} else if (specifier == "milliseconds" || specifier == "millisecond" || specifier == "ms" || specifier == "msec" ||
-	           specifier == "msecs") {
+	           specifier == "msecs" || specifier == "msecond" || specifier == "mseconds") {
 		result = DatePartSpecifier::MILLISECONDS;
-	} else if (specifier == "second" || specifier == "seconds" || specifier == "s") {
+	} else if (specifier == "second" || specifier == "sec" || specifier == "seconds" || specifier == "secs" ||
+	           specifier == "s") {
 		result = DatePartSpecifier::SECOND;
-	} else if (specifier == "minute" || specifier == "minutes" || specifier == "m") {
+	} else if (specifier == "minute" || specifier == "min" || specifier == "minutes" || specifier == "mins" ||
+	           specifier == "m") {
 		result = DatePartSpecifier::MINUTE;
-	} else if (specifier == "hour" || specifier == "hours" || specifier == "h") {
+	} else if (specifier == "hour" || specifier == "hr" || specifier == "hours" || specifier == "hrs" ||
+	           specifier == "h") {
 		result = DatePartSpecifier::HOUR;
 	} else if (specifier == "epoch") {
 		// seconds since 1970-01-01
@@ -156,34 +161,27 @@ DatePartSpecifier GetDateTypePartSpecifier(const string &specifier, LogicalType 
 }
 
 template <int64_t MIN, int64_t MAX>
-static unique_ptr<BaseStatistics> PropagateSimpleDatePartStatistics(vector<unique_ptr<BaseStatistics>> &child_stats) {
+static unique_ptr<BaseStatistics> PropagateSimpleDatePartStatistics(vector<BaseStatistics> &child_stats) {
 	// we can always propagate simple date part statistics
 	// since the min and max can never exceed these bounds
-	auto result = make_unique<NumericStatistics>(LogicalType::BIGINT, Value::BIGINT(MIN), Value::BIGINT(MAX),
-	                                             StatisticsType::LOCAL_STATS);
-	if (!child_stats[0]) {
-		// if there are no child stats, we don't know
-		result->validity_stats = make_unique<ValidityStatistics>(true);
-	} else if (child_stats[0]->validity_stats) {
-		result->validity_stats = child_stats[0]->validity_stats->Copy();
-	}
-	return move(result);
+	auto result = NumericStats::CreateEmpty(LogicalType::BIGINT);
+	result.CopyValidity(child_stats[0]);
+	NumericStats::SetMin(result, Value::BIGINT(MIN));
+	NumericStats::SetMax(result, Value::BIGINT(MAX));
+	return result.ToUnique();
 }
 
 struct DatePart {
 	template <class T, class OP>
-	static unique_ptr<BaseStatistics> PropagateDatePartStatistics(vector<unique_ptr<BaseStatistics>> &child_stats) {
+	static unique_ptr<BaseStatistics> PropagateDatePartStatistics(vector<BaseStatistics> &child_stats) {
 		// we can only propagate complex date part stats if the child has stats
-		if (!child_stats[0]) {
-			return nullptr;
-		}
-		auto &nstats = (NumericStatistics &)*child_stats[0];
-		if (nstats.min.IsNull() || nstats.max.IsNull()) {
+		auto &nstats = child_stats[0];
+		if (!NumericStats::HasMinMax(nstats)) {
 			return nullptr;
 		}
 		// run the operator on both the min and the max, this gives us the [min, max] bound
-		auto min = nstats.min.GetValueUnsafe<T>();
-		auto max = nstats.max.GetValueUnsafe<T>();
+		auto min = NumericStats::GetMinUnsafe<T>(nstats);
+		auto max = NumericStats::GetMaxUnsafe<T>(nstats);
 		if (min > max) {
 			return nullptr;
 		}
@@ -193,12 +191,11 @@ struct DatePart {
 		}
 		auto min_part = OP::template Operation<T, int64_t>(min);
 		auto max_part = OP::template Operation<T, int64_t>(max);
-		auto result = make_unique<NumericStatistics>(LogicalType::BIGINT, Value::BIGINT(min_part),
-		                                             Value::BIGINT(max_part), StatisticsType::LOCAL_STATS);
-		if (child_stats[0]->validity_stats) {
-			result->validity_stats = child_stats[0]->validity_stats->Copy();
-		}
-		return move(result);
+		auto result = NumericStats::CreateEmpty(LogicalType::BIGINT);
+		NumericStats::SetMin(result, Value::BIGINT(min_part));
+		NumericStats::SetMax(result, Value::BIGINT(max_part));
+		result.CopyValidity(child_stats[0]);
+		return result.ToUnique();
 	}
 
 	template <typename OP>
@@ -1212,10 +1209,10 @@ void AddGenericDatePartOperator(BuiltinFunctions &set, const string &name, scala
                                 function_statistics_t date_stats, function_statistics_t ts_stats) {
 	ScalarFunctionSet operator_set(name);
 	operator_set.AddFunction(
-	    ScalarFunction({LogicalType::DATE}, LogicalType::BIGINT, move(date_func), nullptr, nullptr, date_stats));
+	    ScalarFunction({LogicalType::DATE}, LogicalType::BIGINT, std::move(date_func), nullptr, nullptr, date_stats));
 	operator_set.AddFunction(
-	    ScalarFunction({LogicalType::TIMESTAMP}, LogicalType::BIGINT, move(ts_func), nullptr, nullptr, ts_stats));
-	operator_set.AddFunction(ScalarFunction({LogicalType::INTERVAL}, LogicalType::BIGINT, move(interval_func)));
+	    ScalarFunction({LogicalType::TIMESTAMP}, LogicalType::BIGINT, std::move(ts_func), nullptr, nullptr, ts_stats));
+	operator_set.AddFunction(ScalarFunction({LogicalType::INTERVAL}, LogicalType::BIGINT, std::move(interval_func)));
 	set.AddFunction(operator_set);
 }
 
@@ -1233,12 +1230,12 @@ void AddGenericTimePartOperator(BuiltinFunctions &set, const string &name, scala
                                 function_statistics_t time_stats) {
 	ScalarFunctionSet operator_set(name);
 	operator_set.AddFunction(
-	    ScalarFunction({LogicalType::DATE}, LogicalType::BIGINT, move(date_func), nullptr, nullptr, date_stats));
+	    ScalarFunction({LogicalType::DATE}, LogicalType::BIGINT, std::move(date_func), nullptr, nullptr, date_stats));
 	operator_set.AddFunction(
-	    ScalarFunction({LogicalType::TIMESTAMP}, LogicalType::BIGINT, move(ts_func), nullptr, nullptr, ts_stats));
-	operator_set.AddFunction(ScalarFunction({LogicalType::INTERVAL}, LogicalType::BIGINT, move(interval_func)));
+	    ScalarFunction({LogicalType::TIMESTAMP}, LogicalType::BIGINT, std::move(ts_func), nullptr, nullptr, ts_stats));
+	operator_set.AddFunction(ScalarFunction({LogicalType::INTERVAL}, LogicalType::BIGINT, std::move(interval_func)));
 	operator_set.AddFunction(
-	    ScalarFunction({LogicalType::TIME}, LogicalType::BIGINT, move(time_func), nullptr, nullptr, time_stats));
+	    ScalarFunction({LogicalType::TIME}, LogicalType::BIGINT, std::move(time_func), nullptr, nullptr, time_stats));
 	set.AddFunction(operator_set);
 }
 
@@ -1335,7 +1332,7 @@ struct StructDatePart {
 		}
 
 		Function::EraseArgument(bound_function, arguments, 0);
-		bound_function.return_type = LogicalType::STRUCT(move(struct_children));
+		bound_function.return_type = LogicalType::STRUCT(std::move(struct_children));
 		return make_unique<BindData>(bound_function.return_type, part_codes);
 	}
 
@@ -1459,7 +1456,7 @@ struct StructDatePart {
 	                                                    ScalarFunction &bound_function) {
 		auto stype = reader.ReadRequiredSerializable<LogicalType, LogicalType>();
 		auto part_codes = reader.ReadRequiredList<DatePartSpecifier>();
-		return make_unique<BindData>(move(stype), move(part_codes));
+		return make_unique<BindData>(std::move(stype), std::move(part_codes));
 	}
 
 	template <typename INPUT_TYPE>

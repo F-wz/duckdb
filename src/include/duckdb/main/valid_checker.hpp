@@ -14,15 +14,14 @@
 
 namespace duckdb {
 class DatabaseInstance;
-class Transaction;
+class MetaTransaction;
 
 class ValidChecker {
 public:
 	ValidChecker();
 
 	DUCKDB_API static ValidChecker &Get(DatabaseInstance &db);
-	template <typename TransactionType>
-	DUCKDB_API static ValidChecker &Get(TransactionType &transaction);
+	DUCKDB_API static ValidChecker &Get(MetaTransaction &transaction);
 
 	DUCKDB_API void Invalidate(string error);
 	DUCKDB_API bool IsInvalidated();
@@ -34,7 +33,7 @@ public:
 	}
 	template <class T>
 	static void Invalidate(T &o, string error) {
-		Get(o).Invalidate(move(error));
+		Get(o).Invalidate(std::move(error));
 	}
 
 	template <class T>

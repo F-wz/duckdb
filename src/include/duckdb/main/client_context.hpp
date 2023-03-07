@@ -76,7 +76,7 @@ public:
 class ClientContext : public std::enable_shared_from_this<ClientContext> {
 	friend class PendingQueryResult;
 	friend class StreamQueryResult;
-	friend class TransactionManager;
+	friend class DuckTransactionManager;
 
 public:
 	DUCKDB_API explicit ClientContext(shared_ptr<DatabaseInstance> db);
@@ -84,8 +84,6 @@ public:
 
 	//! The database that this client is connected to
 	shared_ptr<DatabaseInstance> db;
-	//! Data for the currently running transaction
-	TransactionContext transaction;
 	//! Whether or not the query is interrupted
 	atomic<bool> interrupted;
 	//! External Objects (e.g., Python objects) that views depend of
@@ -96,9 +94,11 @@ public:
 	ClientConfig config;
 	//! The set of client-specific data
 	unique_ptr<ClientData> client_data;
+	//! Data for the currently running transaction
+	TransactionContext transaction;
 
 public:
-	DUCKDB_API Transaction &ActiveTransaction() {
+	DUCKDB_API MetaTransaction &ActiveTransaction() {
 		return transaction.ActiveTransaction();
 	}
 
@@ -134,6 +134,8 @@ public:
 	DUCKDB_API void TryBindRelation(Relation &relation, vector<ColumnDefinition> &result_columns);
 
 	//! Execute a relation
+	DUCKDB_API unique_ptr<PendingQueryResult> PendingQuery(const shared_ptr<Relation> &relation,
+	                                                       bool allow_stream_result);
 	DUCKDB_API unique_ptr<QueryResult> Execute(const shared_ptr<Relation> &relation);
 
 	//! Prepare a query
@@ -198,6 +200,9 @@ public:
 
 	DUCKDB_API ClientProperties GetClientProperties() const;
 
+	//! Returns true if execution of the current query is finished
+	DUCKDB_API bool ExecutionIsFinished();
+
 private:
 	//! Parse statements and resolve pragmas from a query
 	bool ParseStatements(ClientContextLock &lock, const string &query, vector<unique_ptr<SQLStatement>> &result,
@@ -256,6 +261,9 @@ private:
 	unique_ptr<PendingQueryResult> PendingQueryPreparedInternal(ClientContextLock &lock, const string &query,
 	                                                            shared_ptr<PreparedStatementData> &prepared,
 	                                                            PendingQueryParameters parameters);
+
+	unique_ptr<PendingQueryResult> PendingQueryInternal(ClientContextLock &, const shared_ptr<Relation> &relation,
+	                                                    bool allow_stream_result);
 
 private:
 	//! Lock on using the ClientContext in parallel

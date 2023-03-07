@@ -194,6 +194,9 @@ typedef enum PGNodeTag {
 	T_PGOnConflictExpr,
 	T_PGIntoClause,
 	T_PGLambdaFunction,
+	T_PGPivotExpr,
+	T_PGPivot,
+	T_PGPivotStmt,
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
@@ -421,6 +424,10 @@ typedef enum PGNodeTag {
 	T_PGPragmaStmt,
 	T_PGExportStmt,
 	T_PGImportStmt,
+	T_PGAttachStmt,
+	T_PGDetachStmt,
+	T_PGCreateDatabaseStmt,
+	T_PGUseStmt,
 
 	/*
 	 * TAGS FOR PARSE TREE NODES (parsenodes.h)
@@ -662,7 +669,12 @@ typedef enum PGJoinType {
 	 * by the executor (nor, indeed, by most of the planner).
 	 */
 	PG_JOIN_UNIQUE_OUTER, /* LHS path must be made unique */
-	PG_JOIN_UNIQUE_INNER  /* RHS path must be made unique */
+	PG_JOIN_UNIQUE_INNER, /* RHS path must be made unique */
+
+	/*
+	 * Positional joins are essentially parallel table scans.
+	 */
+	PG_JOIN_POSITION /* Two tables of the same length */
 
 	/*
 	 * We might need additional join types someday.
@@ -757,5 +769,17 @@ typedef enum PGOnConflictAction {
 	PG_ONCONFLICT_NOTHING, /* ON CONFLICT ... DO NOTHING */
 	PG_ONCONFLICT_UPDATE   /* ON CONFLICT ... DO UPDATE */
 } PGOnConflictAction;
+
+/*
+ * PGOnConflictActionAlias -
+ *	  "INSERT OR [REPLACE|IGNORE]" aliases for OnConflictAction
+ *
+ * This is needed in both parsenodes.h and plannodes.h, so put it here...
+ */
+typedef enum PGOnConflictActionAlias {
+	PG_ONCONFLICT_ALIAS_NONE,    /* No "OR [IGNORE|REPLACE]" clause */
+	PG_ONCONFLICT_ALIAS_REPLACE, /* INSERT OR REPLACE */
+	PG_ONCONFLICT_ALIAS_IGNORE   /* INSERT OR IGNORE */
+} PGOnConflictActionAlias;
 
 }

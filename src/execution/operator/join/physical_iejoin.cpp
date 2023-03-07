@@ -19,8 +19,8 @@ namespace duckdb {
 PhysicalIEJoin::PhysicalIEJoin(LogicalOperator &op, unique_ptr<PhysicalOperator> left,
                                unique_ptr<PhysicalOperator> right, vector<JoinCondition> cond, JoinType join_type,
                                idx_t estimated_cardinality)
-    : PhysicalRangeJoin(op, PhysicalOperatorType::IE_JOIN, move(left), move(right), move(cond), join_type,
-                        estimated_cardinality) {
+    : PhysicalRangeJoin(op, PhysicalOperatorType::IE_JOIN, std::move(left), std::move(right), std::move(cond),
+                        join_type, estimated_cardinality) {
 
 	// 1. let L1 (resp. L2) be the array of column X (resp. Y)
 	D_ASSERT(conditions.size() >= 2);
@@ -52,8 +52,8 @@ PhysicalIEJoin::PhysicalIEJoin(LogicalOperator &op, unique_ptr<PhysicalOperator>
 		default:
 			throw NotImplementedException("Unimplemented join type for IEJoin");
 		}
-		lhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, move(left)));
-		rhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, move(right)));
+		lhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, std::move(left)));
+		rhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, std::move(right)));
 	}
 
 	for (idx_t i = 2; i < conditions.size(); ++i) {
@@ -99,7 +99,7 @@ public:
 	}
 
 	IEJoinGlobalState(IEJoinGlobalState &prev)
-	    : GlobalSinkState(prev), tables(move(prev.tables)), child(prev.child + 1) {
+	    : GlobalSinkState(prev), tables(std::move(prev.tables)), child(prev.child + 1) {
 	}
 
 	void Sink(DataChunk &input, IEJoinLocalState &lstate) {
@@ -386,7 +386,7 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	// Sort on the first expression
 	auto ref = make_unique<BoundReferenceExpression>(order1.expression->return_type, 0);
 	vector<BoundOrderByNode> orders;
-	orders.emplace_back(BoundOrderByNode(order1.type, order1.null_order, move(ref)));
+	orders.emplace_back(BoundOrderByNode(order1.type, order1.null_order, std::move(ref)));
 
 	l1 = make_unique<SortedTable>(context, orders, payload_layout);
 
@@ -422,7 +422,7 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	// Sort on the first expression
 	orders.clear();
 	ref = make_unique<BoundReferenceExpression>(order2.expression->return_type, 0);
-	orders.emplace_back(BoundOrderByNode(order2.type, order2.null_order, move(ref)));
+	orders.emplace_back(BoundOrderByNode(order2.type, order2.null_order, std::move(ref)));
 
 	ExpressionExecutor executor(context);
 	executor.AddExpression(*orders[0].expression);
@@ -664,6 +664,7 @@ public:
 			if (!matches[outer_idx]) {
 				true_sel.set_index(count++, outer_idx);
 				if (count >= STANDARD_VECTOR_SIZE) {
+					outer_idx++;
 					break;
 				}
 			}
@@ -847,8 +848,6 @@ public:
 
 			lstate.joiner = make_unique<IEJoinUnion>(client, op, left_table, b1, right_table, b2);
 			return;
-		} else {
-			--next_pair;
 		}
 
 		// Outer joins
@@ -864,6 +863,7 @@ public:
 		// Left outer blocks
 		const auto l = next_left++;
 		if (l < left_outers) {
+			lstate.joiner = nullptr;
 			lstate.left_block_index = l;
 			lstate.left_base = left_bases[l];
 
@@ -873,12 +873,12 @@ public:
 			return;
 		} else {
 			lstate.left_matches = nullptr;
-			--next_left;
 		}
 
 		// Right outer block
 		const auto r = next_right++;
 		if (r < right_outers) {
+			lstate.joiner = nullptr;
 			lstate.right_block_index = r;
 			lstate.right_base = right_bases[r];
 
@@ -888,7 +888,6 @@ public:
 			return;
 		} else {
 			lstate.right_matches = nullptr;
-			--next_right;
 		}
 	}
 
@@ -936,7 +935,7 @@ void PhysicalIEJoin::GetData(ExecutionContext &context, DataChunk &result, Globa
 
 	ie_gstate.Initialize(ie_sink);
 
-	if (!ie_lstate.joiner) {
+	if (!ie_lstate.joiner && !ie_lstate.left_matches && !ie_lstate.right_matches) {
 		ie_gstate.GetNextPair(context.client, ie_sink, ie_lstate);
 	}
 
@@ -959,8 +958,7 @@ void PhysicalIEJoin::GetData(ExecutionContext &context, DataChunk &result, Globa
 			ie_gstate.GetNextPair(context.client, ie_sink, ie_lstate);
 			continue;
 		}
-
-		SliceSortedPayload(result, ie_sink.tables[0]->global_sort_state, ie_lstate.left_base, ie_lstate.true_sel,
+		SliceSortedPayload(result, ie_sink.tables[0]->global_sort_state, ie_lstate.left_block_index, ie_lstate.true_sel,
 		                   count);
 
 		// Fill in NULLs to the right
@@ -983,8 +981,8 @@ void PhysicalIEJoin::GetData(ExecutionContext &context, DataChunk &result, Globa
 			continue;
 		}
 
-		SliceSortedPayload(result, ie_sink.tables[1]->global_sort_state, ie_lstate.right_base, ie_lstate.true_sel,
-		                   count, left_cols);
+		SliceSortedPayload(result, ie_sink.tables[1]->global_sort_state, ie_lstate.right_block_index,
+		                   ie_lstate.true_sel, count, left_cols);
 
 		// Fill in NULLs to the left
 		for (idx_t col_idx = 0; col_idx < left_cols; ++col_idx) {

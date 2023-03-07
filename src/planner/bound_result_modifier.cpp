@@ -10,16 +10,16 @@ BoundResultModifier::~BoundResultModifier() {
 }
 
 BoundOrderByNode::BoundOrderByNode(OrderType type, OrderByNullType null_order, unique_ptr<Expression> expression)
-    : type(type), null_order(null_order), expression(move(expression)) {
+    : type(type), null_order(null_order), expression(std::move(expression)) {
 }
 BoundOrderByNode::BoundOrderByNode(OrderType type, OrderByNullType null_order, unique_ptr<Expression> expression,
                                    unique_ptr<BaseStatistics> stats)
-    : type(type), null_order(null_order), expression(move(expression)), stats(move(stats)) {
+    : type(type), null_order(null_order), expression(std::move(expression)), stats(std::move(stats)) {
 }
 
 BoundOrderByNode BoundOrderByNode::Copy() const {
 	if (stats) {
-		return BoundOrderByNode(type, null_order, expression->Copy(), stats->Copy());
+		return BoundOrderByNode(type, null_order, expression->Copy(), stats->ToUnique());
 	} else {
 		return BoundOrderByNode(type, null_order, expression->Copy());
 	}
@@ -77,7 +77,7 @@ BoundOrderByNode BoundOrderByNode::Deserialize(Deserializer &source, PlanDeseria
 	auto null_order = reader.ReadRequired<OrderByNullType>();
 	auto expression = reader.ReadRequiredSerializable<Expression>(state);
 	reader.Finalize();
-	return BoundOrderByNode(type, null_order, move(expression));
+	return BoundOrderByNode(type, null_order, std::move(expression));
 }
 
 BoundLimitModifier::BoundLimitModifier() : BoundResultModifier(ResultModifierType::LIMIT_MODIFIER) {

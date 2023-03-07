@@ -19,7 +19,7 @@ CommonTableExpressionMap CommonTableExpressionMap::Copy() const {
 			kv_info->aliases.push_back(al);
 		}
 		kv_info->query = unique_ptr_cast<SQLStatement, SelectStatement>(kv.second->query->Copy());
-		res.map[kv.first] = move(kv_info);
+		res.map[kv.first] = std::move(kv_info);
 	}
 	return res;
 }
@@ -146,7 +146,7 @@ void QueryNode::CopyProperties(QueryNode &other) const {
 			kv_info->aliases.push_back(al);
 		}
 		kv_info->query = unique_ptr_cast<SQLStatement, SelectStatement>(kv.second->query->Copy());
-		other.cte_map.map[kv.first] = move(kv_info);
+		other.cte_map.map[kv.first] = std::move(kv_info);
 	}
 }
 
@@ -174,13 +174,13 @@ unique_ptr<QueryNode> QueryNode::Deserialize(Deserializer &main_source) {
 	// cte_map
 	auto cte_count = reader.ReadRequired<uint32_t>();
 	auto &source = reader.GetSource();
-	unordered_map<string, unique_ptr<CommonTableExpressionInfo>> new_map;
+	case_insensitive_map_t<unique_ptr<CommonTableExpressionInfo>> new_map;
 	for (idx_t i = 0; i < cte_count; i++) {
 		auto name = source.Read<string>();
 		auto info = make_unique<CommonTableExpressionInfo>();
 		source.ReadStringVector(info->aliases);
 		info->query = SelectStatement::Deserialize(source);
-		new_map[name] = move(info);
+		new_map[name] = std::move(info);
 	}
 	unique_ptr<QueryNode> result;
 	switch (type) {
@@ -196,8 +196,8 @@ unique_ptr<QueryNode> QueryNode::Deserialize(Deserializer &main_source) {
 	default:
 		throw SerializationException("Could not deserialize Query Node: unknown type!");
 	}
-	result->modifiers = move(modifiers);
-	result->cte_map.map = move(new_map);
+	result->modifiers = std::move(modifiers);
+	result->cte_map.map = std::move(new_map);
 	reader.Finalize();
 	return result;
 }

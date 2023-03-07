@@ -10,7 +10,8 @@ struct SortedAggregateBindData : public FunctionData {
 	SortedAggregateBindData(ClientContext &context, const AggregateFunction &function_p,
 	                        vector<unique_ptr<Expression>> &children, unique_ptr<FunctionData> bind_info_p,
 	                        const BoundOrderModifier &order_bys)
-	    : buffer_manager(BufferManager::GetBufferManager(context)), function(function_p), bind_info(move(bind_info_p)) {
+	    : buffer_manager(BufferManager::GetBufferManager(context)), function(function_p),
+	      bind_info(std::move(bind_info_p)) {
 		arg_types.reserve(children.size());
 		for (const auto &child : children) {
 			arg_types.emplace_back(child->return_type);
@@ -70,15 +71,23 @@ struct SortedAggregateBindData : public FunctionData {
 };
 
 struct SortedAggregateState {
-	static const idx_t BUFFER_CAPACITY = STANDARD_VECTOR_SIZE;
+	//! Default buffer size, optimised for small group to avoid blowing out memory.
+	static const idx_t BUFFER_CAPACITY = 16;
 
 	SortedAggregateState() : nsel(0) {
 	}
 
 	static inline void InitializeBuffer(DataChunk &chunk, const vector<LogicalType> &types) {
 		if (!chunk.ColumnCount() && !types.empty()) {
-			chunk.Initialize(Allocator::DefaultAllocator(), types);
+			chunk.Initialize(Allocator::DefaultAllocator(), types, BUFFER_CAPACITY);
 		}
+	}
+
+	//! Make sure the buffer is large enough for slicing
+	static inline void ResetBuffer(DataChunk &chunk, const vector<LogicalType> &types) {
+		chunk.Reset();
+		chunk.Destroy();
+		chunk.Initialize(Allocator::DefaultAllocator(), types);
 	}
 
 	void Flush(SortedAggregateBindData &order_bind) {
@@ -89,10 +98,12 @@ struct SortedAggregateState {
 		ordering = make_unique<ColumnDataCollection>(order_bind.buffer_manager, order_bind.sort_types);
 		InitializeBuffer(sort_buffer, order_bind.sort_types);
 		ordering->Append(sort_buffer);
+		ResetBuffer(sort_buffer, order_bind.sort_types);
 
 		arguments = make_unique<ColumnDataCollection>(order_bind.buffer_manager, order_bind.arg_types);
 		InitializeBuffer(arg_buffer, order_bind.arg_types);
 		arguments->Append(arg_buffer);
+		ResetBuffer(arg_buffer, order_bind.arg_types);
 	}
 
 	void Update(SortedAggregateBindData &order_bind, DataChunk &sort_chunk, DataChunk &arg_chunk) {
@@ -100,7 +111,7 @@ struct SortedAggregateState {
 		InitializeBuffer(sort_buffer, order_bind.sort_types);
 		InitializeBuffer(arg_buffer, order_bind.arg_types);
 
-		if (sort_chunk.size() + sort_buffer.size() > BUFFER_CAPACITY) {
+		if (sort_chunk.size() + sort_buffer.size() > STANDARD_VECTOR_SIZE) {
 			Flush(order_bind);
 		}
 		if (ordering) {
@@ -117,7 +128,7 @@ struct SortedAggregateState {
 		InitializeBuffer(sort_buffer, order_bind.sort_types);
 		InitializeBuffer(arg_buffer, order_bind.arg_types);
 
-		if (nsel + sort_buffer.size() > BUFFER_CAPACITY) {
+		if (nsel + sort_buffer.size() > STANDARD_VECTOR_SIZE) {
 			Flush(order_bind);
 		}
 		if (ordering) {
@@ -275,6 +286,8 @@ struct SortedAggregateFunction {
 		auto &orders = order_bind->orders;
 		RowLayout payload_layout;
 		payload_layout.Initialize(order_bind->arg_types);
+		DataChunk chunk;
+		chunk.Initialize(Allocator::DefaultAllocator(), order_bind->arg_types);
 
 		//	 Reusable inner state
 		vector<data_t> agg_state(order_bind->function.state_size());
@@ -313,7 +326,6 @@ struct SortedAggregateFunction {
 					global_sort->CompleteMergeRound(false);
 				}
 
-				auto &chunk = state->arg_buffer;
 				PayloadScanner scanner(*global_sort);
 				for (;;) {
 					chunk.Reset();
@@ -357,11 +369,11 @@ unique_ptr<FunctionData> FunctionBinder::BindSortedAggregate(AggregateFunction &
                                                              unique_ptr<BoundOrderModifier> order_bys) {
 
 	auto sorted_bind =
-	    make_unique<SortedAggregateBindData>(context, bound_function, children, move(bind_info), *order_bys);
+	    make_unique<SortedAggregateBindData>(context, bound_function, children, std::move(bind_info), *order_bys);
 
 	// The arguments are the children plus the sort columns.
 	for (auto &order : order_bys->orders) {
-		children.emplace_back(move(order.expression));
+		children.emplace_back(std::move(order.expression));
 	}
 
 	vector<LogicalType> arguments;
@@ -380,9 +392,9 @@ unique_ptr<FunctionData> FunctionBinder::BindSortedAggregate(AggregateFunction &
 	    AggregateFunction::StateDestroy<SortedAggregateState, SortedAggregateFunction>, nullptr,
 	    SortedAggregateFunction::Window, SortedAggregateFunction::Serialize, SortedAggregateFunction::Deserialize);
 
-	bound_function = move(ordered_aggregate);
+	bound_function = std::move(ordered_aggregate);
 
-	return move(sorted_bind);
+	return std::move(sorted_bind);
 }
 
 } // namespace duckdb

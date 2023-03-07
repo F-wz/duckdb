@@ -1,8 +1,10 @@
 #include "duckdb/execution/column_binding_resolver.hpp"
 
 #include "duckdb/planner/operator/logical_comparison_join.hpp"
+#include "duckdb/planner/operator/logical_any_join.hpp"
 #include "duckdb/planner/operator/logical_create_index.hpp"
 #include "duckdb/planner/operator/logical_delim_join.hpp"
+#include "duckdb/planner/operator/logical_insert.hpp"
 
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
@@ -45,13 +47,18 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		// this operator
 		VisitOperatorChildren(op);
 		bindings = op.GetColumnBindings();
+		auto &any_join = (LogicalAnyJoin &)op;
+		if (any_join.join_type == JoinType::SEMI || any_join.join_type == JoinType::ANTI) {
+			auto right_bindings = op.children[1]->GetColumnBindings();
+			bindings.insert(bindings.end(), right_bindings.begin(), right_bindings.end());
+		}
 		VisitOperatorExpressions(op);
 		return;
 	} else if (op.type == LogicalOperatorType::LOGICAL_CREATE_INDEX) {
 		// CREATE INDEX statement, add the columns of the table with table index 0 to the binding set
 		// afterwards bind the expressions of the CREATE INDEX statement
 		auto &create_index = (LogicalCreateIndex &)op;
-		bindings = LogicalOperator::GenerateColumnBindings(0, create_index.table.columns.LogicalColumnCount());
+		bindings = LogicalOperator::GenerateColumnBindings(0, create_index.table.GetColumns().LogicalColumnCount());
 		VisitOperatorExpressions(op);
 		return;
 	} else if (op.type == LogicalOperatorType::LOGICAL_GET) {
@@ -59,6 +66,28 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		bindings = op.GetColumnBindings();
 		VisitOperatorExpressions(op);
 		return;
+	} else if (op.type == LogicalOperatorType::LOGICAL_INSERT) {
+		//! We want to execute the normal path, but also add a dummy 'excluded' binding if there is a
+		// ON CONFLICT DO UPDATE clause
+		auto &insert_op = (LogicalInsert &)op;
+		if (insert_op.action_type != OnConflictAction::THROW) {
+			// Get the bindings from the children
+			VisitOperatorChildren(op);
+			auto column_count = insert_op.table->GetColumns().PhysicalColumnCount();
+			auto dummy_bindings = LogicalOperator::GenerateColumnBindings(insert_op.excluded_table_index, column_count);
+			// Now insert our dummy bindings at the start of the bindings,
+			// so the first 'column_count' indices of the chunk are reserved for our 'excluded' columns
+			bindings.insert(bindings.begin(), dummy_bindings.begin(), dummy_bindings.end());
+			if (insert_op.on_conflict_condition) {
+				VisitExpression(&insert_op.on_conflict_condition);
+			}
+			if (insert_op.do_update_condition) {
+				VisitExpression(&insert_op.do_update_condition);
+			}
+			VisitOperatorExpressions(op);
+			bindings = op.GetColumnBindings();
+			return;
+		}
 	}
 	// general case
 	// first visit the children of this operator

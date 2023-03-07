@@ -3,6 +3,7 @@
 #include "duckdb/parser/expression/list.hpp"
 #include "duckdb/parser/statement/list.hpp"
 #include "duckdb/parser/tableref/emptytableref.hpp"
+#include "duckdb/parser/query_node/select_node.hpp"
 
 namespace duckdb {
 
@@ -28,14 +29,26 @@ Transformer::Transformer(Transformer *parent)
     : parent(parent), max_expression_depth(parent->max_expression_depth), stack_depth(DConstants::INVALID_INDEX) {
 }
 
+Transformer::~Transformer() {
+}
+
+void Transformer::Clear() {
+	SetParamCount(0);
+	pivot_entries.clear();
+}
+
 bool Transformer::TransformParseTree(duckdb_libpgquery::PGList *tree, vector<unique_ptr<SQLStatement>> &statements) {
 	InitializeStackCheck();
 	for (auto entry = tree->head; entry != nullptr; entry = entry->next) {
-		SetParamCount(0);
-		auto stmt = TransformStatement((duckdb_libpgquery::PGNode *)entry->data.ptr_value);
+		Clear();
+		auto n = (duckdb_libpgquery::PGNode *)entry->data.ptr_value;
+		auto stmt = TransformStatement(n);
 		D_ASSERT(stmt);
+		if (HasPivotEntries()) {
+			stmt = CreatePivotStatement(std::move(stmt));
+		}
 		stmt->n_param = ParamCount();
-		statements.push_back(move(stmt));
+		statements.push_back(std::move(stmt));
 	}
 	return true;
 }
@@ -63,7 +76,7 @@ unique_ptr<SQLStatement> Transformer::TransformStatement(duckdb_libpgquery::PGNo
 	result->n_param = ParamCount();
 	if (!named_param_map.empty()) {
 		// Avoid overriding a previous move with nothing
-		result->named_param_map = move(named_param_map);
+		result->named_param_map = std::move(named_param_map);
 	}
 	return result;
 }
@@ -143,10 +156,17 @@ unique_ptr<SQLStatement> Transformer::TransformStatementInternal(duckdb_libpgque
 		return TransformCreateType(stmt);
 	case duckdb_libpgquery::T_PGAlterSeqStmt:
 		return TransformAlterSequence(stmt);
+	case duckdb_libpgquery::T_PGAttachStmt:
+		return TransformAttach(stmt);
+	case duckdb_libpgquery::T_PGDetachStmt:
+		return TransformDetach(stmt);
+	case duckdb_libpgquery::T_PGUseStmt:
+		return TransformUse(stmt);
+	case duckdb_libpgquery::T_PGCreateDatabaseStmt:
+		return TransformCreateDatabase(stmt);
 	default:
 		throw NotImplementedException(NodetypeToString(stmt->type));
 	}
-	return nullptr;
 }
 
 } // namespace duckdb

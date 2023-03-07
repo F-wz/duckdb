@@ -19,6 +19,7 @@
 #include "duckdb/parser/column_list.hpp"
 
 namespace duckdb {
+class AttachedDatabase;
 class BlockManager;
 class ColumnData;
 class DatabaseInstance;
@@ -28,6 +29,8 @@ struct DataTableInfo;
 class ExpressionExecutor;
 class RowGroupWriter;
 class UpdateSegment;
+class TableStatistics;
+class TableStorageInfo;
 class Vector;
 struct ColumnCheckpointState;
 struct RowGroupPointer;
@@ -36,7 +39,7 @@ struct VersionNode;
 
 struct RowGroupWriteData {
 	vector<unique_ptr<ColumnCheckpointState>> states;
-	vector<unique_ptr<BaseStatistics>> statistics;
+	vector<BaseStatistics> statistics;
 };
 
 class RowGroup : public SegmentBase {
@@ -49,15 +52,15 @@ public:
 	static constexpr const idx_t ROW_GROUP_VECTOR_COUNT = ROW_GROUP_SIZE / STANDARD_VECTOR_SIZE;
 
 public:
-	RowGroup(DatabaseInstance &db, BlockManager &block_manager, DataTableInfo &table_info, idx_t start, idx_t count);
-	RowGroup(DatabaseInstance &db, BlockManager &block_manager, DataTableInfo &table_info,
+	RowGroup(AttachedDatabase &db, BlockManager &block_manager, DataTableInfo &table_info, idx_t start, idx_t count);
+	RowGroup(AttachedDatabase &db, BlockManager &block_manager, DataTableInfo &table_info,
 	         const vector<LogicalType> &types, RowGroupPointer &&pointer);
 	RowGroup(RowGroup &row_group, idx_t start);
 	~RowGroup();
 
 private:
 	//! The database instance
-	DatabaseInstance &db;
+	AttachedDatabase &db;
 	//! The block manager
 	BlockManager &block_manager;
 	//! The table info of this row_group
@@ -67,12 +70,10 @@ private:
 	//! The column data of the row_group
 	vector<shared_ptr<ColumnData>> columns;
 	//! The segment statistics for each of the columns
-	vector<shared_ptr<SegmentStatistics>> stats;
+	vector<SegmentStatistics> stats;
 
 public:
-	DatabaseInstance &GetDatabase() {
-		return db;
-	}
+	DatabaseInstance &GetDatabase();
 	BlockManager &GetBlockManager() {
 		return block_manager;
 	}
@@ -132,7 +133,7 @@ public:
 	idx_t Delete(TransactionData transaction, DataTable *table, row_t *row_ids, idx_t count);
 
 	RowGroupWriteData WriteToDisk(PartialBlockManager &manager, const vector<CompressionType> &compression_types);
-	RowGroupPointer Checkpoint(RowGroupWriter &writer, vector<unique_ptr<BaseStatistics>> &global_stats);
+	RowGroupPointer Checkpoint(RowGroupWriter &writer, TableStatistics &global_stats);
 	static void Serialize(RowGroupPointer &pointer, Serializer &serializer);
 	static RowGroupPointer Deserialize(Deserializer &source, const ColumnList &columns);
 
@@ -150,7 +151,7 @@ public:
 	void MergeIntoStatistics(idx_t column_idx, BaseStatistics &other);
 	unique_ptr<BaseStatistics> GetStatistics(idx_t column_idx);
 
-	void GetStorageInfo(idx_t row_group_index, vector<vector<Value>> &result);
+	void GetStorageInfo(idx_t row_group_index, TableStorageInfo &result);
 
 	void Verify();
 

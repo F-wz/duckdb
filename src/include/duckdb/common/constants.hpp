@@ -15,27 +15,10 @@
 
 namespace duckdb {
 
-// API versions
-// if no explicit API version is defined, the latest API version is used
-// Note that using older API versions (i.e. not using DUCKDB_API_LATEST) is deprecated.
-// These will not be supported long-term, and will be removed in future versions.
-
-#ifndef DUCKDB_API_0_3_1
-#define DUCKDB_API_0_3_1 1
-#endif
-#ifndef DUCKDB_API_0_3_2
-#define DUCKDB_API_0_3_2 2
-#endif
-#ifndef DUCKDB_API_LATEST
-#define DUCKDB_API_LATEST DUCKDB_API_0_3_2
-#endif
-
-#ifndef DUCKDB_API_VERSION
-#define DUCKDB_API_VERSION DUCKDB_API_LATEST
-#endif
-
 //! inline std directives that we use frequently
+#ifndef DUCKDB_DEBUG_MOVE
 using std::move;
+#endif
 using std::shared_ptr;
 using std::unique_ptr;
 using std::weak_ptr;
@@ -43,9 +26,14 @@ using data_ptr = unique_ptr<char[]>;
 using std::make_shared;
 
 // NOTE: there is a copy of this in the Postgres' parser grammar (gram.y)
-#define DEFAULT_SCHEMA "main"
-#define TEMP_SCHEMA    "temp"
-#define INVALID_SCHEMA ""
+#define DEFAULT_SCHEMA  "main"
+#define INVALID_SCHEMA  ""
+#define INVALID_CATALOG ""
+#define SYSTEM_CATALOG  "system"
+#define TEMP_CATALOG    "temp"
+
+DUCKDB_API bool IsInvalidSchema(const string &str);
+DUCKDB_API bool IsInvalidCatalog(const string &str);
 
 //! a saner size_t for loop indices etc
 typedef uint64_t idx_t;

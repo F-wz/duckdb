@@ -11,10 +11,11 @@
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/enums/output_type.hpp"
 #include "duckdb/common/types/value.hpp"
-#include "duckdb/common/unordered_map.hpp"
+#include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/atomic.hpp"
 
 namespace duckdb {
+class AttachedDatabase;
 class BufferedFileWriter;
 class ClientContext;
 class CatalogSearchPath;
@@ -36,9 +37,9 @@ struct ClientData {
 	unique_ptr<QueryProfilerHistory> query_profiler_history;
 
 	//! The set of temporary objects that belong to this client
-	shared_ptr<SchemaCatalogEntry> temporary_objects;
+	shared_ptr<AttachedDatabase> temporary_objects;
 	//! The set of bound prepared statements that belong to this client
-	unordered_map<string, shared_ptr<PreparedStatementData>> prepared_statements;
+	case_insensitive_map_t<shared_ptr<PreparedStatementData>> prepared_statements;
 
 	//! The writer used to log queries (if logging is enabled)
 	unique_ptr<BufferedFileWriter> log_query_writer;

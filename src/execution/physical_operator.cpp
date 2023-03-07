@@ -230,7 +230,7 @@ bool CachingPhysicalOperator::CanCacheType(const LogicalType &type) {
 
 CachingPhysicalOperator::CachingPhysicalOperator(PhysicalOperatorType type, vector<LogicalType> types_p,
                                                  idx_t estimated_cardinality)
-    : PhysicalOperator(type, move(types_p), estimated_cardinality) {
+    : PhysicalOperator(type, std::move(types_p), estimated_cardinality) {
 
 	caching_supported = true;
 	for (auto &col_type : types) {
@@ -252,15 +252,15 @@ OperatorResultType CachingPhysicalOperator::Execute(ExecutionContext &context, D
 	if (!state.initialized) {
 		state.initialized = true;
 		state.can_cache_chunk = true;
+
 		if (!context.pipeline || !caching_supported) {
 			state.can_cache_chunk = false;
-		}
-
-		if (context.pipeline->GetSink() && context.pipeline->GetSink()->RequiresBatchIndex()) {
+		} else if (!context.pipeline->GetSink()) {
+			// Disabling for pipelines without Sink, i.e. when pulling
 			state.can_cache_chunk = false;
-		}
-
-		if (context.pipeline->IsOrderDependent()) {
+		} else if (context.pipeline->GetSink()->RequiresBatchIndex()) {
+			state.can_cache_chunk = false;
+		} else if (context.pipeline->IsOrderDependent()) {
 			state.can_cache_chunk = false;
 		}
 	}

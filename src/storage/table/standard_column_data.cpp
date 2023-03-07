@@ -10,7 +10,7 @@ namespace duckdb {
 
 StandardColumnData::StandardColumnData(BlockManager &block_manager, DataTableInfo &info, idx_t column_index,
                                        idx_t start_row, LogicalType type, ColumnData *parent)
-    : ColumnData(block_manager, info, column_index, start_row, move(type), parent),
+    : ColumnData(block_manager, info, column_index, start_row, std::move(type), parent),
       validity(block_manager, info, 0, start_row, this) {
 }
 
@@ -24,7 +24,7 @@ bool StandardColumnData::CheckZonemap(ColumnScanState &state, TableFilter &filte
 			return true;
 		}
 		state.segment_checked = true;
-		auto prune_result = filter.CheckStatistics(*state.current->stats.statistics);
+		auto prune_result = filter.CheckStatistics(state.current->stats.statistics);
 		if (prune_result != FilterPropagateResult::FILTER_ALWAYS_FALSE) {
 			return true;
 		}
@@ -46,7 +46,7 @@ void StandardColumnData::InitializeScan(ColumnScanState &state) {
 	// initialize the validity segment
 	ColumnScanState child_state;
 	validity.InitializeScan(child_state);
-	state.child_states.push_back(move(child_state));
+	state.child_states.push_back(std::move(child_state));
 }
 
 void StandardColumnData::InitializeScanWithOffset(ColumnScanState &state, idx_t row_idx) {
@@ -55,7 +55,7 @@ void StandardColumnData::InitializeScanWithOffset(ColumnScanState &state, idx_t 
 	// initialize the validity segment
 	ColumnScanState child_state;
 	validity.InitializeScanWithOffset(child_state, row_idx);
-	state.child_states.push_back(move(child_state));
+	state.child_states.push_back(std::move(child_state));
 }
 
 idx_t StandardColumnData::Scan(TransactionData transaction, idx_t vector_index, ColumnScanState &state,
@@ -85,14 +85,13 @@ void StandardColumnData::InitializeAppend(ColumnAppendState &state) {
 
 	ColumnAppendState child_append;
 	validity.InitializeAppend(child_append);
-	state.child_appends.push_back(move(child_append));
+	state.child_appends.push_back(std::move(child_append));
 }
 
 void StandardColumnData::AppendData(BaseStatistics &stats, ColumnAppendState &state, UnifiedVectorFormat &vdata,
                                     idx_t count) {
 	ColumnData::AppendData(stats, state, vdata, count);
-
-	validity.AppendData(*stats.validity_stats, state.child_appends[0], vdata, count);
+	validity.AppendData(stats, state.child_appends[0], vdata, count);
 }
 
 void StandardColumnData::RevertAppend(row_t start_row) {
@@ -105,7 +104,7 @@ idx_t StandardColumnData::Fetch(ColumnScanState &state, row_t row_id, Vector &re
 	// fetch validity mask
 	if (state.child_states.empty()) {
 		ColumnScanState child_state;
-		state.child_states.push_back(move(child_state));
+		state.child_states.push_back(std::move(child_state));
 	}
 	auto scan_count = ColumnData::Fetch(state, row_id, result);
 	validity.Fetch(state.child_states[0], row_id, result);
@@ -136,9 +135,11 @@ unique_ptr<BaseStatistics> StandardColumnData::GetUpdateStatistics() {
 		return nullptr;
 	}
 	if (!stats) {
-		stats = BaseStatistics::CreateEmpty(type, StatisticsType::GLOBAL_STATS);
+		stats = BaseStatistics::CreateEmpty(type).ToUnique();
 	}
-	stats->validity_stats = move(validity_stats);
+	if (validity_stats) {
+		stats->Merge(*validity_stats);
+	}
 	return stats;
 }
 
@@ -147,7 +148,7 @@ void StandardColumnData::FetchRow(TransactionData transaction, ColumnFetchState 
 	// find the segment the row belongs to
 	if (state.child_states.empty()) {
 		auto child_state = make_unique<ColumnFetchState>();
-		state.child_states.push_back(move(child_state));
+		state.child_states.push_back(std::move(child_state));
 	}
 	validity.FetchRow(transaction, *state.child_states[0], row_id, result, result_idx);
 	ColumnData::FetchRow(transaction, state, row_id, result, result_idx);
@@ -169,8 +170,7 @@ struct StandardColumnCheckpointState : public ColumnCheckpointState {
 public:
 	unique_ptr<BaseStatistics> GetStatistics() override {
 		D_ASSERT(global_stats);
-		global_stats->validity_stats = validity_state->GetStatistics();
-		return move(global_stats);
+		return std::move(global_stats);
 	}
 
 	void WriteDataPointers(RowGroupWriter &writer) override {
@@ -195,7 +195,7 @@ unique_ptr<ColumnCheckpointState> StandardColumnData::Checkpoint(RowGroup &row_g
 	auto validity_state = validity.Checkpoint(row_group, partial_block_manager, checkpoint_info);
 	auto base_state = ColumnData::Checkpoint(row_group, partial_block_manager, checkpoint_info);
 	auto &checkpoint_state = (StandardColumnCheckpointState &)*base_state;
-	checkpoint_state.validity_state = move(validity_state);
+	checkpoint_state.validity_state = std::move(validity_state);
 	return base_state;
 }
 
@@ -212,10 +212,10 @@ void StandardColumnData::DeserializeColumn(Deserializer &source) {
 	validity.DeserializeColumn(source);
 }
 
-void StandardColumnData::GetStorageInfo(idx_t row_group_index, vector<idx_t> col_path, vector<vector<Value>> &result) {
+void StandardColumnData::GetStorageInfo(idx_t row_group_index, vector<idx_t> col_path, TableStorageInfo &result) {
 	ColumnData::GetStorageInfo(row_group_index, col_path, result);
 	col_path.push_back(0);
-	validity.GetStorageInfo(row_group_index, move(col_path), result);
+	validity.GetStorageInfo(row_group_index, std::move(col_path), result);
 }
 
 void StandardColumnData::Verify(RowGroup &parent) {

@@ -9,7 +9,7 @@
 #include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/operator/logical_aggregate.hpp"
-#include "duckdb/storage/statistics/numeric_statistics.hpp"
+
 namespace duckdb {
 
 static uint32_t RequiredBitsForValue(uint32_t n) {
@@ -50,23 +50,20 @@ static bool CanUsePerfectHashAggregate(ClientContext &context, LogicalAggregate 
 			// for small types we can just set the stats to [type_min, type_max]
 			switch (group_type.InternalType()) {
 			case PhysicalType::INT8:
-				stats = make_unique<NumericStatistics>(group_type, Value::MinimumValue(group_type),
-				                                       Value::MaximumValue(group_type), StatisticsType::LOCAL_STATS);
-				break;
 			case PhysicalType::INT16:
-				stats = make_unique<NumericStatistics>(group_type, Value::MinimumValue(group_type),
-				                                       Value::MaximumValue(group_type), StatisticsType::LOCAL_STATS);
 				break;
 			default:
 				// type is too large and there are no stats: skip perfect hashing
 				return false;
 			}
-			// we had no stats before, so we have no clue if there are null values or not
-			stats->validity_stats = make_unique<ValidityStatistics>(true);
+			// construct stats with the min and max value of the type
+			stats = NumericStats::CreateUnknown(group_type).ToUnique();
+			NumericStats::SetMin(*stats, Value::MinimumValue(group_type));
+			NumericStats::SetMax(*stats, Value::MaximumValue(group_type));
 		}
-		auto &nstats = (NumericStatistics &)*stats;
+		auto &nstats = *stats;
 
-		if (nstats.min.IsNull() || nstats.max.IsNull()) {
+		if (!NumericStats::HasMinMax(nstats)) {
 			return false;
 		}
 		// we have a min and a max value for the stats: use that to figure out how many bits we have
@@ -75,17 +72,20 @@ static bool CanUsePerfectHashAggregate(ClientContext &context, LogicalAggregate 
 		int64_t range;
 		switch (group_type.InternalType()) {
 		case PhysicalType::INT8:
-			range = int64_t(nstats.max.GetValueUnsafe<int8_t>()) - int64_t(nstats.min.GetValueUnsafe<int8_t>());
+			range = int64_t(NumericStats::GetMaxUnsafe<int8_t>(nstats)) -
+			        int64_t(NumericStats::GetMinUnsafe<int8_t>(nstats));
 			break;
 		case PhysicalType::INT16:
-			range = int64_t(nstats.max.GetValueUnsafe<int16_t>()) - int64_t(nstats.min.GetValueUnsafe<int16_t>());
+			range = int64_t(NumericStats::GetMaxUnsafe<int16_t>(nstats)) -
+			        int64_t(NumericStats::GetMinUnsafe<int16_t>(nstats));
 			break;
 		case PhysicalType::INT32:
-			range = int64_t(nstats.max.GetValueUnsafe<int32_t>()) - int64_t(nstats.min.GetValueUnsafe<int32_t>());
+			range = int64_t(NumericStats::GetMaxUnsafe<int32_t>(nstats)) -
+			        int64_t(NumericStats::GetMinUnsafe<int32_t>(nstats));
 			break;
 		case PhysicalType::INT64:
-			if (!TrySubtractOperator::Operation(nstats.max.GetValueUnsafe<int64_t>(),
-			                                    nstats.min.GetValueUnsafe<int64_t>(), range)) {
+			if (!TrySubtractOperator::Operation(NumericStats::GetMaxUnsafe<int64_t>(nstats),
+			                                    NumericStats::GetMinUnsafe<int64_t>(nstats), range)) {
 				return false;
 			}
 			break;
@@ -123,7 +123,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalAggregate 
 
 	auto plan = CreatePlan(*op.children[0]);
 
-	plan = ExtractAggregateExpressions(move(plan), op.expressions, op.groups);
+	plan = ExtractAggregateExpressions(std::move(plan), op.expressions, op.groups);
 
 	if (op.groups.empty()) {
 		// no groups, check if we can use a simple aggregation
@@ -138,11 +138,11 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalAggregate 
 			}
 		}
 		if (use_simple_aggregation) {
-			groupby = make_unique_base<PhysicalOperator, PhysicalUngroupedAggregate>(op.types, move(op.expressions),
-			                                                                         op.estimated_cardinality);
+			groupby = make_unique_base<PhysicalOperator, PhysicalUngroupedAggregate>(
+			    op.types, std::move(op.expressions), op.estimated_cardinality);
 		} else {
-			groupby = make_unique_base<PhysicalOperator, PhysicalHashAggregate>(context, op.types, move(op.expressions),
-			                                                                    op.estimated_cardinality);
+			groupby = make_unique_base<PhysicalOperator, PhysicalHashAggregate>(
+			    context, op.types, std::move(op.expressions), op.estimated_cardinality);
 		}
 	} else {
 		// groups! create a GROUP BY aggregator
@@ -150,15 +150,15 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalAggregate 
 		vector<idx_t> required_bits;
 		if (CanUsePerfectHashAggregate(context, op, required_bits)) {
 			groupby = make_unique_base<PhysicalOperator, PhysicalPerfectHashAggregate>(
-			    context, op.types, move(op.expressions), move(op.groups), move(op.group_stats), move(required_bits),
-			    op.estimated_cardinality);
+			    context, op.types, std::move(op.expressions), std::move(op.groups), std::move(op.group_stats),
+			    std::move(required_bits), op.estimated_cardinality);
 		} else {
 			groupby = make_unique_base<PhysicalOperator, PhysicalHashAggregate>(
-			    context, op.types, move(op.expressions), move(op.groups), move(op.grouping_sets),
-			    move(op.grouping_functions), op.estimated_cardinality);
+			    context, op.types, std::move(op.expressions), std::move(op.groups), std::move(op.grouping_sets),
+			    std::move(op.grouping_functions), op.estimated_cardinality);
 		}
 	}
-	groupby->children.push_back(move(plan));
+	groupby->children.push_back(std::move(plan));
 	return groupby;
 }
 
@@ -172,8 +172,8 @@ PhysicalPlanGenerator::ExtractAggregateExpressions(unique_ptr<PhysicalOperator> 
 	for (auto &group : groups) {
 		auto ref = make_unique<BoundReferenceExpression>(group->return_type, expressions.size());
 		types.push_back(group->return_type);
-		expressions.push_back(move(group));
-		group = move(ref);
+		expressions.push_back(std::move(group));
+		group = std::move(ref);
 	}
 
 	for (auto &aggr : aggregates) {
@@ -181,23 +181,24 @@ PhysicalPlanGenerator::ExtractAggregateExpressions(unique_ptr<PhysicalOperator> 
 		for (auto &child : bound_aggr.children) {
 			auto ref = make_unique<BoundReferenceExpression>(child->return_type, expressions.size());
 			types.push_back(child->return_type);
-			expressions.push_back(move(child));
-			child = move(ref);
+			expressions.push_back(std::move(child));
+			child = std::move(ref);
 		}
 		if (bound_aggr.filter) {
 			auto &filter = bound_aggr.filter;
 			auto ref = make_unique<BoundReferenceExpression>(filter->return_type, expressions.size());
 			types.push_back(filter->return_type);
-			expressions.push_back(move(filter));
-			bound_aggr.filter = move(ref);
+			expressions.push_back(std::move(filter));
+			bound_aggr.filter = std::move(ref);
 		}
 	}
 	if (expressions.empty()) {
 		return child;
 	}
-	auto projection = make_unique<PhysicalProjection>(move(types), move(expressions), child->estimated_cardinality);
-	projection->children.push_back(move(child));
-	return move(projection);
+	auto projection =
+	    make_unique<PhysicalProjection>(std::move(types), std::move(expressions), child->estimated_cardinality);
+	projection->children.push_back(std::move(child));
+	return std::move(projection);
 }
 
 } // namespace duckdb

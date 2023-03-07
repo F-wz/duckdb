@@ -35,11 +35,16 @@ public:
 
 	//! helper function to get the HTTP
 	static HTTPStats *TryGetStats(FileOpener *opener) {
-		auto client_context = opener->TryGetClientContext();
+		auto client_context = FileOpener::TryGetClientContext(opener);
 		if (client_context) {
 			return client_context->client_data->http_stats.get();
 		}
 		return nullptr;
+	}
+
+	bool IsEmpty() {
+		return head_count == 0 && get_count == 0 && put_count == 0 && post_count == 0 && total_bytes_received == 0 &&
+		       total_bytes_sent == 0;
 	}
 };
 

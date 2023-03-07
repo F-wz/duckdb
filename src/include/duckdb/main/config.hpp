@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "duckdb/common/enums/access_mode.hpp"
 #include "duckdb/common/allocator.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/common.hpp"
@@ -23,23 +24,23 @@
 #include "duckdb/common/winapi.hpp"
 #include "duckdb/storage/compression/bitpacking.hpp"
 #include "duckdb/function/cast/default_casts.hpp"
-#include "duckdb/function/replacement_open.hpp"
 #include "duckdb/function/replacement_scan.hpp"
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/parser/parser_extension.hpp"
 #include "duckdb/planner/operator_extension.hpp"
 
 namespace duckdb {
+class BufferPool;
 class CastFunctionSet;
 class ClientContext;
 class ErrorManager;
 class CompressionFunction;
 class TableFunctionRef;
+class OperatorExtension;
+class StorageExtension;
 
 struct CompressionFunctionSet;
 struct DBConfig;
-
-enum class AccessMode : uint8_t { UNDEFINED = 0, AUTOMATIC = 1, READ_ONLY = 2, READ_WRITE = 3 };
 
 enum class CheckpointAbort : uint8_t {
 	NO_ABORT = 0,
@@ -70,8 +71,8 @@ typedef void (*set_option_callback_t)(ClientContext &context, SetScope scope, Va
 struct ExtensionOption {
 	ExtensionOption(string description_p, LogicalType type_p, set_option_callback_t set_function_p,
 	                Value default_value_p)
-	    : description(move(description_p)), type(move(type_p)), set_function(set_function_p),
-	      default_value(move(default_value_p)) {
+	    : description(std::move(description_p)), type(std::move(type_p)), set_function(set_function_p),
+	      default_value(std::move(default_value_p)) {
 	}
 
 	string description;
@@ -136,12 +137,18 @@ struct DBConfigOptions {
 	case_insensitive_map_t<Value> set_variables;
 	//! Database configuration variable default values;
 	case_insensitive_map_t<Value> set_variable_defaults;
+	//! Directory to store extension binaries in
+	string extension_directory;
 	//! Whether unsigned extensions should be loaded
 	bool allow_unsigned_extensions = false;
 	//! Enable emitting FSST Vectors
 	bool enable_fsst_vectors = false;
 	//! Experimental parallel CSV reader
 	bool experimental_parallel_csv_reader = false;
+	//! Start transactions immediately in all attached databases - instead of lazily when a database is referenced
+	bool immediate_transaction_mode = false;
+	//! The set of unrecognized (other) options
+	unordered_map<string, Value> unrecognized_options;
 
 	bool operator==(const DBConfigOptions &other) const;
 };
@@ -165,9 +172,6 @@ public:
 	//! Replacement table scans are automatically attempted when a table name cannot be found in the schema
 	vector<ReplacementScan> replacement_scans;
 
-	//! Replacement open handlers are callbacks that run pre and post database initialization
-	vector<ReplacementOpen> replacement_opens;
-
 	//! Extra parameters that can be SET for loaded extensions
 	case_insensitive_map_t<ExtensionOption> extension_parameters;
 	//! The FileSystem to use, can be overwritten to allow for injecting custom file systems for testing purposes (e.g.
@@ -187,10 +191,15 @@ public:
 	shared_ptr<Allocator> default_allocator;
 	//! Extensions made to binder
 	vector<std::unique_ptr<OperatorExtension>> operator_extensions;
+	//! Extensions made to storage
+	case_insensitive_map_t<std::unique_ptr<StorageExtension>> storage_extensions;
+	//! A buffer pool can be shared across multiple databases (if desired).
+	shared_ptr<BufferPool> buffer_pool;
 
 public:
 	DUCKDB_API static DBConfig &GetConfig(ClientContext &context);
 	DUCKDB_API static DBConfig &GetConfig(DatabaseInstance &db);
+	DUCKDB_API static DBConfig &Get(AttachedDatabase &db);
 	DUCKDB_API static const DBConfig &GetConfig(const ClientContext &context);
 	DUCKDB_API static const DBConfig &GetConfig(const DatabaseInstance &db);
 	DUCKDB_API static vector<ConfigurationOption> GetOptions();
@@ -206,6 +215,7 @@ public:
 
 	DUCKDB_API void SetOption(const ConfigurationOption &option, const Value &value);
 	DUCKDB_API void SetOption(DatabaseInstance *db, const ConfigurationOption &option, const Value &value);
+	DUCKDB_API void SetOptionByName(const string &name, const Value &value);
 	DUCKDB_API void ResetOption(DatabaseInstance *db, const ConfigurationOption &option);
 	DUCKDB_API void SetOption(const string &name, Value value);
 	DUCKDB_API void ResetOption(const string &name);

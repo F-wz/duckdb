@@ -3,12 +3,13 @@
 #include "duckdb/function/scalar/nested_functions.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/expression/bound_parameter_expression.hpp"
-#include "duckdb/storage/statistics/struct_statistics.hpp"
+#include "duckdb/storage/statistics/struct_stats.hpp"
 
 namespace duckdb {
 
 struct StructExtractBindData : public FunctionData {
-	StructExtractBindData(string key, idx_t index, LogicalType type) : key(move(key)), index(index), type(move(type)) {
+	StructExtractBindData(string key, idx_t index, LogicalType type)
+	    : key(std::move(key)), index(index), type(std::move(type)) {
 	}
 
 	string key;
@@ -101,15 +102,10 @@ static unique_ptr<FunctionData> StructExtractBind(ClientContext &context, Scalar
 static unique_ptr<BaseStatistics> PropagateStructExtractStats(ClientContext &context, FunctionStatisticsInput &input) {
 	auto &child_stats = input.child_stats;
 	auto &bind_data = input.bind_data;
-	if (!child_stats[0]) {
-		return nullptr;
-	}
-	auto &struct_stats = (StructStatistics &)*child_stats[0];
+
 	auto &info = (StructExtractBindData &)*bind_data;
-	if (info.index >= struct_stats.child_stats.size() || !struct_stats.child_stats[info.index]) {
-		return nullptr;
-	}
-	return struct_stats.child_stats[info.index]->Copy();
+	auto struct_child_stats = StructStats::GetChildStats(child_stats[0]);
+	return struct_child_stats[info.index].ToUnique();
 }
 
 ScalarFunction StructExtractFun::GetFunction() {

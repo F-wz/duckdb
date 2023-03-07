@@ -204,14 +204,14 @@ TEST_CASE("Test multiple result sets", "[api]") {
 
 	result = con.Query("SELECT 42; SELECT 84");
 	REQUIRE(CHECK_COLUMN(result, 0, {42}));
-	result = move(result->next);
+	result = std::move(result->next);
 	REQUIRE(CHECK_COLUMN(result, 0, {84}));
 	REQUIRE(!result->next);
 
 	// also with stream api
 	result = con.SendQuery("SELECT 42; SELECT 84");
 	REQUIRE(CHECK_COLUMN(result, 0, {42}));
-	result = move(result->next);
+	result = std::move(result->next);
 	REQUIRE(CHECK_COLUMN(result, 0, {84}));
 	REQUIRE(!result->next);
 }
@@ -394,20 +394,20 @@ TEST_CASE("Test fetch API with big results", "[api][.]") {
 
 	// stream the results using the Fetch() API
 	auto result = con.SendQuery("SELECT CAST(a AS INTEGER) FROM test ORDER BY a");
-	VerifyStreamResult(move(result));
+	VerifyStreamResult(std::move(result));
 	// we can also stream a materialized result
 	auto materialized = con.Query("SELECT CAST(a AS INTEGER) FROM test ORDER BY a");
-	VerifyStreamResult(move(materialized));
+	VerifyStreamResult(std::move(materialized));
 	// return multiple results using the stream API
 	result = con.SendQuery("SELECT CAST(a AS INTEGER) FROM test ORDER BY a; SELECT CAST(a AS INTEGER) FROM test ORDER "
 	                       "BY a; SELECT CAST(a AS INTEGER) FROM test ORDER BY a;");
-	auto next = move(result->next);
+	auto next = std::move(result->next);
 	while (next) {
-		auto nextnext = move(next->next);
-		VerifyStreamResult(move(nextnext));
-		next = move(nextnext);
+		auto nextnext = std::move(next->next);
+		VerifyStreamResult(std::move(nextnext));
+		next = std::move(nextnext);
 	}
-	VerifyStreamResult(move(result));
+	VerifyStreamResult(std::move(result));
 }
 
 TEST_CASE("Test streaming query during stack unwinding", "[api]") {
@@ -524,7 +524,7 @@ TEST_CASE("Test large number of connections to a single database", "[api]") {
 
 	for (size_t i = 0; i < createdConnections; i++) {
 		auto conn = make_unique<Connection>(*db);
-		connections.push_back(move(conn));
+		connections.push_back(std::move(conn));
 	}
 
 	REQUIRE(connection_manager.connections.size() == createdConnections);
@@ -553,4 +553,45 @@ TEST_CASE("Issue #4583: Catch Insert/Update/Delete errors", "[api]") {
 
 	result = con.SendQuery("SELECT MIN(c0) FROM t0;");
 	REQUIRE(CHECK_COLUMN(result, 0, {1}));
+}
+
+TEST_CASE("Issue #6284: CachingPhysicalOperator in pull causes issues", "[api][.]") {
+
+	DBConfig config;
+	config.options.maximum_threads = 8;
+	DuckDB db(nullptr, &config);
+	Connection con(db);
+
+	REQUIRE_NO_FAIL(con.Query("select setseed(0.1); CREATE TABLE T0 AS SELECT DISTINCT (RANDOM()*9999999)::BIGINT "
+	                          "record_nb, 0.0 x_0, 1.0 y_0 FROM range(1000000) tbl"));
+	REQUIRE_NO_FAIL(con.Query("CREATE TABLE T1 AS SELECT record_nb, 0.0 x_1, 1.0 y_1 FROM T0"));
+	REQUIRE_NO_FAIL(con.Query("CREATE TABLE T2 AS SELECT record_nb, 0.0 x_2, 1.0 y_2 FROM T0"));
+	REQUIRE_NO_FAIL(con.Query("CREATE TABLE T3 AS SELECT record_nb, 0.0 x_3, 1.0 y_3 FROM T0"));
+	auto result = con.SendQuery(R"(
+        SELECT T0.record_nb,
+            T1.x_1 x_1,
+            T1.y_1 y_1,
+            T2.x_2 x_2,
+            T2.y_2 y_2,
+            T3.x_3 x_3,
+            T3.y_3 y_3
+         FROM T0
+           INNER JOIN T1 on T0.record_nb = T1.record_nb
+           INNER JOIN T2 on T0.record_nb = T2.record_nb
+           INNER JOIN T3 on T0.record_nb = T3.record_nb
+    )");
+
+	idx_t count = 0;
+	while (true) {
+		auto chunk = result->Fetch();
+		if (!chunk) {
+			break;
+		}
+		if (chunk->size() == 0) {
+			break;
+		}
+		count += chunk->size();
+	}
+
+	REQUIRE(951446 - count == 0);
 }

@@ -8,7 +8,7 @@
 #include "duckdb/common/algorithm.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/common/likely.hpp"
-#include "duckdb/storage/statistics/numeric_statistics.hpp"
+#include "duckdb/common/types/bit.hpp"
 #include <cmath>
 #include <errno.h>
 
@@ -76,25 +76,22 @@ static unique_ptr<BaseStatistics> PropagateAbsStats(ClientContext &context, Func
 	auto &expr = input.expr;
 	D_ASSERT(child_stats.size() == 1);
 	// can only propagate stats if the children have stats
-	if (!child_stats[0]) {
-		return nullptr;
-	}
-	auto &lstats = (NumericStatistics &)*child_stats[0];
+	auto &lstats = child_stats[0];
 	Value new_min, new_max;
 	bool potential_overflow = true;
-	if (!lstats.min.IsNull() && !lstats.max.IsNull()) {
+	if (NumericStats::HasMinMax(lstats)) {
 		switch (expr.return_type.InternalType()) {
 		case PhysicalType::INT8:
-			potential_overflow = lstats.min.GetValue<int8_t>() == NumericLimits<int8_t>::Minimum();
+			potential_overflow = NumericStats::Min(lstats).GetValue<int8_t>() == NumericLimits<int8_t>::Minimum();
 			break;
 		case PhysicalType::INT16:
-			potential_overflow = lstats.min.GetValue<int16_t>() == NumericLimits<int16_t>::Minimum();
+			potential_overflow = NumericStats::Min(lstats).GetValue<int16_t>() == NumericLimits<int16_t>::Minimum();
 			break;
 		case PhysicalType::INT32:
-			potential_overflow = lstats.min.GetValue<int32_t>() == NumericLimits<int32_t>::Minimum();
+			potential_overflow = NumericStats::Min(lstats).GetValue<int32_t>() == NumericLimits<int32_t>::Minimum();
 			break;
 		case PhysicalType::INT64:
-			potential_overflow = lstats.min.GetValue<int64_t>() == NumericLimits<int64_t>::Minimum();
+			potential_overflow = NumericStats::Min(lstats).GetValue<int64_t>() == NumericLimits<int64_t>::Minimum();
 			break;
 		default:
 			return nullptr;
@@ -107,8 +104,8 @@ static unique_ptr<BaseStatistics> PropagateAbsStats(ClientContext &context, Func
 		// no potential overflow
 
 		// compute stats
-		auto current_min = lstats.min.GetValue<int64_t>();
-		auto current_max = lstats.max.GetValue<int64_t>();
+		auto current_min = NumericStats::Min(lstats).GetValue<int64_t>();
+		auto current_max = NumericStats::Max(lstats).GetValue<int64_t>();
 
 		int64_t min_val, max_val;
 
@@ -123,17 +120,18 @@ static unique_ptr<BaseStatistics> PropagateAbsStats(ClientContext &context, Func
 			max_val = MaxValue(AbsValue(current_min), current_max);
 		} else {
 			// if both current_min and current_max are > 0, then the abs is a no-op and can be removed entirely
-			*input.expr_ptr = move(input.expr.children[0]);
-			return move(child_stats[0]);
+			*input.expr_ptr = std::move(input.expr.children[0]);
+			return child_stats[0].ToUnique();
 		}
 		new_min = Value::Numeric(expr.return_type, min_val);
 		new_max = Value::Numeric(expr.return_type, max_val);
 		expr.function.function = ScalarFunction::GetScalarUnaryFunction<AbsOperator>(expr.return_type);
 	}
-	auto stats =
-	    make_unique<NumericStatistics>(expr.return_type, move(new_min), move(new_max), StatisticsType::LOCAL_STATS);
-	stats->validity_stats = lstats.validity_stats->Copy();
-	return move(stats);
+	auto stats = NumericStats::CreateEmpty(expr.return_type);
+	NumericStats::SetMin(stats, new_min);
+	NumericStats::SetMax(stats, new_max);
+	stats.CopyValidity(lstats);
+	return stats.ToUnique();
 }
 
 template <class OP>
@@ -222,6 +220,14 @@ struct HugeIntBitCntOperator {
 	}
 };
 
+struct BitStringBitCntOperator {
+	template <class TA, class TR>
+	static inline TR Operation(TA input) {
+		TR count = Bit::BitCount(input);
+		return count;
+	}
+};
+
 void BitCountFun::RegisterFunction(BuiltinFunctions &set) {
 	ScalarFunctionSet functions("bit_count");
 	functions.AddFunction(ScalarFunction({LogicalType::TINYINT}, LogicalType::TINYINT,
@@ -234,6 +240,8 @@ void BitCountFun::RegisterFunction(BuiltinFunctions &set) {
 	                                     ScalarFunction::UnaryFunction<int64_t, int8_t, BitCntOperator>));
 	functions.AddFunction(ScalarFunction({LogicalType::HUGEINT}, LogicalType::TINYINT,
 	                                     ScalarFunction::UnaryFunction<hugeint_t, int8_t, HugeIntBitCntOperator>));
+	functions.AddFunction(ScalarFunction({LogicalType::BIT}, LogicalType::BIGINT,
+	                                     ScalarFunction::UnaryFunction<string_t, idx_t, BitStringBitCntOperator>));
 	set.AddFunction(functions);
 }
 
@@ -843,6 +851,25 @@ void IsNanFun::RegisterFunction(BuiltinFunctions &set) {
 	                                 ScalarFunction::UnaryFunction<float, bool, IsNanOperator>));
 	funcs.AddFunction(ScalarFunction({LogicalType::DOUBLE}, LogicalType::BOOLEAN,
 	                                 ScalarFunction::UnaryFunction<double, bool, IsNanOperator>));
+	set.AddFunction(funcs);
+}
+
+//===--------------------------------------------------------------------===//
+// signbit
+//===--------------------------------------------------------------------===//
+struct SignBitOperator {
+	template <class TA, class TR>
+	static inline TR Operation(TA input) {
+		return std::signbit(input);
+	}
+};
+
+void SignBitFun::RegisterFunction(BuiltinFunctions &set) {
+	ScalarFunctionSet funcs("signbit");
+	funcs.AddFunction(ScalarFunction({LogicalType::FLOAT}, LogicalType::BOOLEAN,
+	                                 ScalarFunction::UnaryFunction<float, bool, SignBitOperator>));
+	funcs.AddFunction(ScalarFunction({LogicalType::DOUBLE}, LogicalType::BOOLEAN,
+	                                 ScalarFunction::UnaryFunction<double, bool, SignBitOperator>));
 	set.AddFunction(funcs);
 }
 

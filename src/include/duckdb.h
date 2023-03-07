@@ -35,7 +35,10 @@
 #endif
 #endif
 
-// duplicate of duckdb/common/constants.hpp
+// API versions
+// if no explicit API version is defined, the latest API version is used
+// Note that using older API versions (i.e. not using DUCKDB_API_LATEST) is deprecated.
+// These will not be supported long-term, and will be removed in future versions.
 #ifndef DUCKDB_API_0_3_1
 #define DUCKDB_API_0_3_1 1
 #endif
@@ -119,10 +122,10 @@ typedef enum DUCKDB_TYPE {
 	DUCKDB_TYPE_MAP,
 	// duckdb_hugeint
 	DUCKDB_TYPE_UUID,
-	// const char*
-	DUCKDB_TYPE_JSON,
 	// union type, only useful as logical type
 	DUCKDB_TYPE_UNION,
+	// duckdb_bit
+	DUCKDB_TYPE_BIT,
 } duckdb_type;
 
 //! Days are stored as days since 1970-01-01
@@ -191,6 +194,11 @@ typedef struct {
 	void *data;
 	idx_t size;
 } duckdb_blob;
+
+typedef struct {
+	uint64_t offset;
+	uint64_t length;
+} duckdb_list_entry;
 
 typedef struct {
 #if DUCKDB_API_VERSION < DUCKDB_API_0_3_2
@@ -564,6 +572,14 @@ Use `duckdb_result_chunk_count` to figure out how many chunks there are in the r
 * returns: The resulting data chunk. Returns `NULL` if the chunk index is out of bounds.
 */
 DUCKDB_API duckdb_data_chunk duckdb_result_get_chunk(duckdb_result result, idx_t chunk_index);
+
+/*!
+Checks if the type of the internal result is StreamQueryResult.
+
+* result: The result object to check.
+* returns: Whether or not the result object is of the type StreamQueryResult
+*/
+DUCKDB_API bool duckdb_result_is_streaming(duckdb_result result);
 
 /*!
 Returns the number of data chunks present in the result.
@@ -1102,6 +1118,21 @@ DUCKDB_API duckdb_state duckdb_pending_prepared(duckdb_prepared_statement prepar
                                                 duckdb_pending_result *out_result);
 
 /*!
+Executes the prepared statement with the given bound parameters, and returns a pending result.
+This pending result will create a streaming duckdb_result when executed.
+The pending result represents an intermediate structure for a query that is not yet fully executed.
+
+Note that after calling `duckdb_pending_prepared_streaming`, the pending result should always be destroyed using
+`duckdb_destroy_pending`, even if this function returns DuckDBError.
+
+* prepared_statement: The prepared statement to execute.
+* out_result: The pending query result.
+* returns: `DuckDBSuccess` on success or `DuckDBError` on failure.
+*/
+DUCKDB_API duckdb_state duckdb_pending_prepared_streaming(duckdb_prepared_statement prepared_statement,
+                                                          duckdb_pending_result *out_result);
+
+/*!
 Closes the pending result and de-allocates all memory allocated for the result.
 
 * pending_result: The pending result to destroy.
@@ -1560,6 +1591,24 @@ Returns the size of the child vector of the list
 * returns: The size of the child list
 */
 DUCKDB_API idx_t duckdb_list_vector_get_size(duckdb_vector vector);
+
+/*!
+Sets the total size of the underlying child-vector of a list vector.
+
+* vector: The list vector.
+* size: The size of the child list.
+* returns: The duckdb state. Returns DuckDBError if the vector is nullptr.
+*/
+DUCKDB_API duckdb_state duckdb_list_vector_set_size(duckdb_vector vector, idx_t size);
+
+/*!
+Sets the total capacity of the underlying child-vector of a list.
+
+* vector: The list vector.
+* required_capacity: the total capacity to reserve.
+* return: The duckdb state. Returns DuckDBError if the vector is nullptr.
+*/
+DUCKDB_API duckdb_state duckdb_list_vector_reserve(duckdb_vector vector, idx_t required_capacity);
 
 /*!
 Retrieves the child vector of a struct vector.
@@ -2288,6 +2337,35 @@ on the task state.
 * state: The task state to clean up
 */
 DUCKDB_API void duckdb_destroy_task_state(duckdb_task_state state);
+
+/*!
+Returns true if execution of the current query is finished.
+
+* con: The connection on which to check
+*/
+DUCKDB_API bool duckdb_execution_is_finished(duckdb_connection con);
+
+//===--------------------------------------------------------------------===//
+// Streaming Result Interface
+//===--------------------------------------------------------------------===//
+
+/*!
+Fetches a data chunk from the (streaming) duckdb_result. This function should be called repeatedly until the result is
+exhausted.
+
+The result must be destroyed with `duckdb_destroy_data_chunk`.
+
+This function can only be used on duckdb_results created with 'duckdb_pending_prepared_streaming'
+
+If this function is used, none of the other result functions can be used and vice versa (i.e. this function cannot be
+mixed with the legacy result functions or the materialized result functions).
+
+It is not known beforehand how many chunks will be returned by this result.
+
+* result: The result object to fetch the data chunk from.
+* returns: The resulting data chunk. Returns `NULL` if the result has an error.
+*/
+DUCKDB_API duckdb_data_chunk duckdb_stream_fetch_chunk(duckdb_result result);
 
 #ifdef __cplusplus
 }

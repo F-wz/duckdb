@@ -24,17 +24,14 @@ void TableDataReader::ReadTableData() {
 	D_ASSERT(!columns.empty());
 
 	// deserialize the total table statistics
-	info.data->column_stats.reserve(columns.PhysicalColumnCount());
-	for (auto &col : columns.Physical()) {
-		info.data->column_stats.push_back(BaseStatistics::Deserialize(reader, col.Type()));
-	}
+	info.data->table_stats.Deserialize(reader, columns);
 
 	// deserialize each of the individual row groups
 	auto row_group_count = reader.Read<uint64_t>();
 	info.data->row_groups.reserve(row_group_count);
 	for (idx_t i = 0; i < row_group_count; i++) {
 		auto row_group_pointer = RowGroup::Deserialize(reader, columns);
-		info.data->row_groups.push_back(move(row_group_pointer));
+		info.data->row_groups.push_back(std::move(row_group_pointer));
 	}
 }
 

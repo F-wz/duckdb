@@ -1,7 +1,8 @@
 #include "duckdb/common/string_util.hpp"
+
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/pair.hpp"
 #include "duckdb/common/to_string.hpp"
-#include "duckdb/common/exception.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -19,7 +20,7 @@ bool StringUtil::Contains(const string &haystack, const string &needle) {
 
 void StringUtil::LTrim(string &str) {
 	auto it = str.begin();
-	while (CharacterIsSpace(*it)) {
+	while (it != str.end() && CharacterIsSpace(*it)) {
 		it++;
 	}
 	str.erase(str.begin(), it);
@@ -28,6 +29,13 @@ void StringUtil::LTrim(string &str) {
 // Remove trailing ' ', '\f', '\n', '\r', '\t', '\v'
 void StringUtil::RTrim(string &str) {
 	str.erase(find_if(str.rbegin(), str.rend(), [](int ch) { return ch > 0 && !CharacterIsSpace(ch); }).base(),
+	          str.end());
+}
+
+void StringUtil::RTrim(string &str, const string &chars_to_trim) {
+	str.erase(find_if(str.rbegin(), str.rend(),
+	                  [&chars_to_trim](int ch) { return ch > 0 && chars_to_trim.find(ch) == string::npos; })
+	              .base(),
 	          str.end());
 }
 
@@ -165,6 +173,10 @@ string StringUtil::Lower(const string &str) {
 	return (copy);
 }
 
+bool StringUtil::CIEquals(const string &l1, const string &l2) {
+	return StringUtil::Lower(l1) == StringUtil::Lower(l2);
+}
+
 vector<string> StringUtil::Split(const string &input, const string &split) {
 	vector<string> splits;
 
@@ -237,7 +249,7 @@ private:
 };
 
 // adapted from https://en.wikibooks.org/wiki/Algorithm_Implementation/Strings/Levenshtein_distance#C++
-idx_t StringUtil::LevenshteinDistance(const string &s1_p, const string &s2_p) {
+idx_t StringUtil::LevenshteinDistance(const string &s1_p, const string &s2_p, idx_t not_equal_penalty) {
 	auto s1 = StringUtil::Lower(s1_p);
 	auto s2 = StringUtil::Lower(s2_p);
 	idx_t len1 = s1.size();
@@ -261,7 +273,7 @@ idx_t StringUtil::LevenshteinDistance(const string &s1_p, const string &s2_p) {
 			// d[i][j] = std::min({ d[i - 1][j] + 1,
 			//                      d[i][j - 1] + 1,
 			//                      d[i - 1][j - 1] + (s1[i - 1] == s2[j - 1] ? 0 : 1) });
-			int equal = s1[i - 1] == s2[j - 1] ? 0 : 1;
+			int equal = s1[i - 1] == s2[j - 1] ? 0 : not_equal_penalty;
 			idx_t adjacent_score1 = array.Score(i - 1, j) + 1;
 			idx_t adjacent_score2 = array.Score(i, j - 1) + 1;
 			idx_t adjacent_score3 = array.Score(i - 1, j - 1) + equal;
@@ -273,15 +285,19 @@ idx_t StringUtil::LevenshteinDistance(const string &s1_p, const string &s2_p) {
 	return array.Score(len1, len2);
 }
 
+idx_t StringUtil::SimilarityScore(const string &s1, const string &s2) {
+	return LevenshteinDistance(s1, s2, 3);
+}
+
 vector<string> StringUtil::TopNLevenshtein(const vector<string> &strings, const string &target, idx_t n,
                                            idx_t threshold) {
 	vector<pair<string, idx_t>> scores;
 	scores.reserve(strings.size());
 	for (auto &str : strings) {
 		if (target.size() < str.size()) {
-			scores.emplace_back(str, LevenshteinDistance(str.substr(0, target.size()), target));
+			scores.emplace_back(str, SimilarityScore(str.substr(0, target.size()), target));
 		} else {
-			scores.emplace_back(str, LevenshteinDistance(str, target));
+			scores.emplace_back(str, SimilarityScore(str, target));
 		}
 	}
 	return TopNStrings(scores, n, threshold);

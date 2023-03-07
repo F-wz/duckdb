@@ -9,7 +9,7 @@ namespace duckdb {
 
 string TableRef::BaseToString(string result) const {
 	vector<string> column_name_alias;
-	return BaseToString(move(result), column_name_alias);
+	return BaseToString(std::move(result), column_name_alias);
 }
 
 string TableRef::BaseToString(string result, const vector<string> &column_name_alias) const {
@@ -63,9 +63,6 @@ unique_ptr<TableRef> TableRef::Deserialize(Deserializer &source) {
 	case TableReferenceType::BASE_TABLE:
 		result = BaseTableRef::Deserialize(reader);
 		break;
-	case TableReferenceType::CROSS_PRODUCT:
-		result = CrossProductRef::Deserialize(reader);
-		break;
 	case TableReferenceType::JOIN:
 		result = JoinRef::Deserialize(reader);
 		break;
@@ -81,6 +78,9 @@ unique_ptr<TableRef> TableRef::Deserialize(Deserializer &source) {
 	case TableReferenceType::EXPRESSION_LIST:
 		result = ExpressionListRef::Deserialize(reader);
 		break;
+	case TableReferenceType::PIVOT:
+		result = PivotRef::Deserialize(reader);
+		break;
 	case TableReferenceType::CTE:
 	case TableReferenceType::INVALID:
 		throw InternalException("Unsupported type for TableRef::Deserialize");
@@ -88,7 +88,7 @@ unique_ptr<TableRef> TableRef::Deserialize(Deserializer &source) {
 	reader.Finalize();
 
 	result->alias = alias;
-	result->sample = move(sample);
+	result->sample = std::move(sample);
 	return result;
 }
 

@@ -23,17 +23,17 @@
 namespace duckdb {
 
 Vector::Vector(LogicalType type_p, bool create_data, bool zero_data, idx_t capacity)
-    : vector_type(VectorType::FLAT_VECTOR), type(move(type_p)), data(nullptr) {
+    : vector_type(VectorType::FLAT_VECTOR), type(std::move(type_p)), data(nullptr) {
 	if (create_data) {
 		Initialize(zero_data, capacity);
 	}
 }
 
-Vector::Vector(LogicalType type_p, idx_t capacity) : Vector(move(type_p), true, false, capacity) {
+Vector::Vector(LogicalType type_p, idx_t capacity) : Vector(std::move(type_p), true, false, capacity) {
 }
 
 Vector::Vector(LogicalType type_p, data_ptr_t dataptr)
-    : vector_type(VectorType::FLAT_VECTOR), type(move(type_p)), data(dataptr) {
+    : vector_type(VectorType::FLAT_VECTOR), type(std::move(type_p)), data(dataptr) {
 	if (dataptr && !type.IsValid()) {
 		throw InternalException("Cannot create a vector of type INVALID!");
 	}
@@ -60,8 +60,8 @@ Vector::Vector(const Value &value) : type(value.type()) {
 }
 
 Vector::Vector(Vector &&other) noexcept
-    : vector_type(other.vector_type), type(move(other.type)), data(other.data), validity(move(other.validity)),
-      buffer(move(other.buffer)), auxiliary(move(other.auxiliary)) {
+    : vector_type(other.vector_type), type(std::move(other.type)), data(other.data),
+      validity(std::move(other.validity)), buffer(std::move(other.buffer)), auxiliary(std::move(other.auxiliary)) {
 }
 
 void Vector::Reference(const Value &value) {
@@ -73,18 +73,18 @@ void Vector::Reference(const Value &value) {
 		auto struct_buffer = make_unique<VectorStructBuffer>();
 		auto &child_types = StructType::GetChildTypes(value.type());
 		auto &child_vectors = struct_buffer->GetChildren();
-		auto &value_children = StructValue::GetChildren(value);
 		for (idx_t i = 0; i < child_types.size(); i++) {
-			auto vector = make_unique<Vector>(value.IsNull() ? Value(child_types[i].second) : value_children[i]);
-			child_vectors.push_back(move(vector));
+			auto vector =
+			    make_unique<Vector>(value.IsNull() ? Value(child_types[i].second) : StructValue::GetChildren(value)[i]);
+			child_vectors.push_back(std::move(vector));
 		}
-		auxiliary = move(struct_buffer);
+		auxiliary = std::move(struct_buffer);
 		if (value.IsNull()) {
 			SetValue(0, value);
 		}
 	} else if (internal_type == PhysicalType::LIST) {
 		auto list_buffer = make_unique<VectorListBuffer>(value.type());
-		auxiliary = move(list_buffer);
+		auxiliary = std::move(list_buffer);
 		data = buffer->GetData();
 		SetValue(0, value);
 	} else {
@@ -162,13 +162,13 @@ void Vector::Slice(const SelectionVector &sel, idx_t count) {
 		// already a dictionary, slice the current dictionary
 		auto &current_sel = DictionaryVector::SelVector(*this);
 		auto sliced_dictionary = current_sel.Slice(sel, count);
-		buffer = make_buffer<DictionaryBuffer>(move(sliced_dictionary));
+		buffer = make_buffer<DictionaryBuffer>(std::move(sliced_dictionary));
 		if (GetType().InternalType() == PhysicalType::STRUCT) {
 			auto &child_vector = DictionaryVector::Child(*this);
 
 			Vector new_child(child_vector);
 			new_child.auxiliary = make_buffer<VectorStructBuffer>(new_child, sel, count);
-			auxiliary = make_buffer<VectorChildBuffer>(move(new_child));
+			auxiliary = make_buffer<VectorChildBuffer>(std::move(new_child));
 		}
 		return;
 	}
@@ -183,11 +183,11 @@ void Vector::Slice(const SelectionVector &sel, idx_t count) {
 	if (internal_type == PhysicalType::STRUCT) {
 		child_vector.auxiliary = make_buffer<VectorStructBuffer>(*this, sel, count);
 	}
-	auto child_ref = make_buffer<VectorChildBuffer>(move(child_vector));
+	auto child_ref = make_buffer<VectorChildBuffer>(std::move(child_vector));
 	auto dict_buffer = make_buffer<DictionaryBuffer>(sel);
 	vector_type = VectorType::DICTIONARY_VECTOR;
-	buffer = move(dict_buffer);
-	auxiliary = move(child_ref);
+	buffer = std::move(dict_buffer);
+	auxiliary = std::move(child_ref);
 }
 
 void Vector::Slice(const SelectionVector &sel, idx_t count, SelCache &cache) {
@@ -217,10 +217,10 @@ void Vector::Initialize(bool zero_data, idx_t capacity) {
 	auto internal_type = type.InternalType();
 	if (internal_type == PhysicalType::STRUCT) {
 		auto struct_buffer = make_unique<VectorStructBuffer>(type, capacity);
-		auxiliary = move(struct_buffer);
+		auxiliary = std::move(struct_buffer);
 	} else if (internal_type == PhysicalType::LIST) {
 		auto list_buffer = make_unique<VectorListBuffer>(type, capacity);
-		auxiliary = move(list_buffer);
+		auxiliary = std::move(list_buffer);
 	}
 	auto type_size = GetTypeIdSize(internal_type);
 	if (type_size > 0) {
@@ -298,7 +298,7 @@ void Vector::Resize(idx_t cur_size, idx_t new_size) {
 		if (!data_to_resize.is_nested) {
 			auto new_data = unique_ptr<data_t[]>(new data_t[new_size * data_to_resize.type_size]);
 			memcpy(new_data.get(), data_to_resize.data, cur_size * data_to_resize.type_size * sizeof(data_t));
-			data_to_resize.buffer->SetData(move(new_data));
+			data_to_resize.buffer->SetData(std::move(new_data));
 			data_to_resize.vec.data = data_to_resize.buffer->GetData();
 		}
 		data_to_resize.vec.validity.Resize(cur_size, new_size);
@@ -373,15 +373,18 @@ void Vector::SetValue(idx_t index, const Value &val) {
 		D_ASSERT(GetVectorType() == VectorType::CONSTANT_VECTOR || GetVectorType() == VectorType::FLAT_VECTOR);
 
 		auto &children = StructVector::GetEntries(*this);
-		auto &val_children = StructValue::GetChildren(val);
-		D_ASSERT(val.IsNull() || children.size() == val_children.size());
-		for (size_t i = 0; i < children.size(); i++) {
-			auto &vec_child = children[i];
-			if (!val.IsNull()) {
+		if (val.IsNull()) {
+			for (size_t i = 0; i < children.size(); i++) {
+				auto &vec_child = children[i];
+				vec_child->SetValue(index, Value());
+			}
+		} else {
+			auto &val_children = StructValue::GetChildren(val);
+			D_ASSERT(children.size() == val_children.size());
+			for (size_t i = 0; i < children.size(); i++) {
+				auto &vec_child = children[i];
 				auto &struct_child = val_children[i];
 				vec_child->SetValue(index, struct_child);
-			} else {
-				vec_child->SetValue(index, Value());
 			}
 		}
 		break;
@@ -537,26 +540,29 @@ Value Vector::GetValueInternal(const Vector &v_p, idx_t index_p) {
 		auto str = ((string_t *)data)[index];
 		return Value(str.GetString());
 	}
-	case LogicalTypeId::JSON: {
-		auto str = ((string_t *)data)[index];
-		return Value::JSON(str.GetString());
-	}
 	case LogicalTypeId::AGGREGATE_STATE:
 	case LogicalTypeId::BLOB: {
 		auto str = ((string_t *)data)[index];
 		return Value::BLOB((const_data_ptr_t)str.GetDataUnsafe(), str.GetSize());
 	}
+	case LogicalTypeId::BIT: {
+		auto str = ((string_t *)data)[index];
+		return Value::BIT((const_data_ptr_t)str.GetDataUnsafe(), str.GetSize());
+	}
 	case LogicalTypeId::MAP: {
-		auto &child_entries = StructVector::GetEntries(*vector);
-		Value key = child_entries[0]->GetValue(index);
-		Value value = child_entries[1]->GetValue(index);
-		return Value::MAP(move(key), move(value));
+		auto offlen = ((list_entry_t *)data)[index];
+		auto &child_vec = ListVector::GetEntry(*vector);
+		std::vector<Value> children;
+		for (idx_t i = offlen.offset; i < offlen.offset + offlen.length; i++) {
+			children.push_back(child_vec.GetValue(i));
+		}
+		return Value::MAP(ListType::GetChildType(type), std::move(children));
 	}
 	case LogicalTypeId::UNION: {
 		auto tag = UnionVector::GetTag(*vector, index);
 		auto value = UnionVector::GetMember(*vector, tag).GetValue(index);
 		auto members = UnionType::CopyMemberTypes(type);
-		return Value::UNION(members, tag, move(value));
+		return Value::UNION(members, tag, std::move(value));
 	}
 	case LogicalTypeId::STRUCT: {
 		// we can derive the value schema from the vector schema
@@ -566,7 +572,7 @@ Value Vector::GetValueInternal(const Vector &v_p, idx_t index_p) {
 			auto &struct_child = child_entries[child_idx];
 			children.push_back(make_pair(StructType::GetChildName(type, child_idx), struct_child->GetValue(index_p)));
 		}
-		return Value::STRUCT(move(children));
+		return Value::STRUCT(std::move(children));
 	}
 	case LogicalTypeId::LIST: {
 		auto offlen = ((list_entry_t *)data)[index];
@@ -575,7 +581,7 @@ Value Vector::GetValueInternal(const Vector &v_p, idx_t index_p) {
 		for (idx_t i = offlen.offset; i < offlen.offset + offlen.length; i++) {
 			children.push_back(child_vec.GetValue(i));
 		}
-		return Value::LIST(ListType::GetChildType(type), move(children));
+		return Value::LIST(ListType::GetChildType(type), std::move(children));
 	}
 	default:
 		throw InternalException("Unimplemented type for value access");
@@ -586,9 +592,10 @@ Value Vector::GetValue(const Vector &v_p, idx_t index_p) {
 	auto value = GetValueInternal(v_p, index_p);
 	// set the alias of the type to the correct value, if there is a type alias
 	if (v_p.GetType().HasAlias()) {
-		value.type().CopyAuxInfo(v_p.GetType());
+		value.GetTypeMutable().CopyAuxInfo(v_p.GetType());
 	}
 	if (v_p.GetType().id() != LogicalTypeId::AGGREGATE_STATE && value.type().id() != LogicalTypeId::AGGREGATE_STATE) {
+
 		D_ASSERT(v_p.GetType() == value.type());
 	}
 	return value;
@@ -654,7 +661,7 @@ string Vector::ToString(idx_t count) const {
 	return retval;
 }
 
-void Vector::Print(idx_t count) {
+void Vector::Print(idx_t count) const {
 	Printer::Print(ToString(count));
 }
 
@@ -678,7 +685,7 @@ string Vector::ToString() const {
 	return retval;
 }
 
-void Vector::Print() {
+void Vector::Print() const {
 	Printer::Print(ToString());
 }
 // LCOV_EXCL_STOP
@@ -721,7 +728,7 @@ void Vector::Flatten(idx_t count) {
 	case VectorType::CONSTANT_VECTOR: {
 		bool is_null = ConstantVector::IsNull(*this);
 		// allocate a new buffer for the vector
-		auto old_buffer = move(buffer);
+		auto old_buffer = std::move(buffer);
 		auto old_data = data;
 		buffer = VectorBuffer::CreateStandardVector(type, MaxValue<idx_t>(STANDARD_VECTOR_SIZE, count));
 		data = buffer->GetData();
@@ -790,9 +797,9 @@ void Vector::Flatten(idx_t count) {
 				D_ASSERT(child->GetVectorType() == VectorType::CONSTANT_VECTOR);
 				auto vector = make_unique<Vector>(*child);
 				vector->Flatten(count);
-				new_children.push_back(move(vector));
+				new_children.push_back(std::move(vector));
 			}
-			auxiliary = move(normalified_buffer);
+			auxiliary = std::move(normalified_buffer);
 		} break;
 		default:
 			throw InternalException("Unimplemented type for VectorOperations::Flatten");
@@ -854,12 +861,12 @@ void Vector::ToUnifiedFormat(idx_t count, UnifiedVectorFormat &data) {
 			// dictionary with non-flat child: create a new reference to the child and normalify it
 			Vector child_vector(child);
 			child_vector.Flatten(sel, count);
-			auto new_aux = make_buffer<VectorChildBuffer>(move(child_vector));
+			auto new_aux = make_buffer<VectorChildBuffer>(std::move(child_vector));
 
 			data.sel = &sel;
 			data.data = FlatVector::GetData(new_aux->data);
 			data.validity = FlatVector::Validity(new_aux->data);
-			this->auxiliary = move(new_aux);
+			this->auxiliary = std::move(new_aux);
 		}
 		break;
 	}
@@ -1112,7 +1119,7 @@ void Vector::Verify(Vector &vector_p, const SelectionVector &sel_p, idx_t count)
 	    (vtype == VectorType::CONSTANT_VECTOR || vtype == VectorType::FLAT_VECTOR)) {
 		D_ASSERT(!vector->auxiliary);
 	}
-	if (type.id() == LogicalTypeId::VARCHAR || type.id() == LogicalTypeId::JSON) {
+	if (type.id() == LogicalTypeId::VARCHAR) {
 		// verify that the string is correct unicode
 		switch (vtype) {
 		case VectorType::FLAT_VECTOR: {
@@ -1122,6 +1129,25 @@ void Vector::Verify(Vector &vector_p, const SelectionVector &sel_p, idx_t count)
 				auto oidx = sel->get_index(i);
 				if (validity.RowIsValid(oidx)) {
 					strings[oidx].Verify();
+				}
+			}
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	if (type.id() == LogicalTypeId::BIT) {
+		switch (vtype) {
+		case VectorType::FLAT_VECTOR: {
+			auto &validity = FlatVector::Validity(*vector);
+			auto strings = FlatVector::GetData<string_t>(*vector);
+			for (idx_t i = 0; i < count; i++) {
+				auto oidx = sel->get_index(i);
+				if (validity.RowIsValid(oidx)) {
+					auto buf = strings[oidx].GetDataUnsafe();
+					D_ASSERT(*buf >= 0 && *buf < 8);
 				}
 			}
 			break;
@@ -1324,6 +1350,7 @@ void ConstantVector::Reference(Vector &vector, Vector &source, idx_t position, i
 			ConstantVector::Reference(*target_entries[i], *source_entries[i], position, count);
 		}
 		vector.SetVectorType(VectorType::CONSTANT_VECTOR);
+		vector.validity.Set(0, true);
 		break;
 	}
 	default:
@@ -1353,7 +1380,7 @@ string_t StringVector::AddString(Vector &vector, const string &data) {
 }
 
 string_t StringVector::AddString(Vector &vector, string_t data) {
-	D_ASSERT(vector.GetType().id() == LogicalTypeId::VARCHAR || vector.GetType().id() == LogicalTypeId::JSON);
+	D_ASSERT(vector.GetType().id() == LogicalTypeId::VARCHAR || vector.GetType().id() == LogicalTypeId::BIT);
 	if (data.IsInlined()) {
 		// string will be inlined: no need to store in string heap
 		return data;
@@ -1399,7 +1426,7 @@ void StringVector::AddHandle(Vector &vector, BufferHandle handle) {
 		vector.auxiliary = make_buffer<VectorStringBuffer>();
 	}
 	auto &string_buffer = (VectorStringBuffer &)*vector.auxiliary;
-	string_buffer.AddHeapReference(make_buffer<ManagedVectorBuffer>(move(handle)));
+	string_buffer.AddHeapReference(make_buffer<ManagedVectorBuffer>(std::move(handle)));
 }
 
 void StringVector::AddBuffer(Vector &vector, buffer_ptr<VectorBuffer> buffer) {
@@ -1409,7 +1436,7 @@ void StringVector::AddBuffer(Vector &vector, buffer_ptr<VectorBuffer> buffer) {
 		vector.auxiliary = make_buffer<VectorStringBuffer>();
 	}
 	auto &string_buffer = (VectorStringBuffer &)*vector.auxiliary;
-	string_buffer.AddHeapReference(move(buffer));
+	string_buffer.AddHeapReference(std::move(buffer));
 }
 
 void StringVector::AddHeapReference(Vector &vector, Vector &other) {
@@ -1512,12 +1539,12 @@ void FSSTVector::DecompressVector(const Vector &src, Vector &dst, idx_t src_offs
 }
 
 Vector &MapVector::GetKeys(Vector &vector) {
-	auto &entries = StructVector::GetEntries(vector);
+	auto &entries = StructVector::GetEntries(ListVector::GetEntry(vector));
 	D_ASSERT(entries.size() == 2);
 	return *entries[0];
 }
 Vector &MapVector::GetValues(Vector &vector) {
-	auto &entries = StructVector::GetEntries(vector);
+	auto &entries = StructVector::GetEntries(ListVector::GetEntry(vector));
 	D_ASSERT(entries.size() == 2);
 	return *entries[1];
 }
@@ -1530,8 +1557,7 @@ const Vector &MapVector::GetValues(const Vector &vector) {
 }
 
 vector<unique_ptr<Vector>> &StructVector::GetEntries(Vector &vector) {
-	D_ASSERT(vector.GetType().id() == LogicalTypeId::STRUCT || vector.GetType().id() == LogicalTypeId::MAP ||
-	         vector.GetType().id() == LogicalTypeId::UNION);
+	D_ASSERT(vector.GetType().id() == LogicalTypeId::STRUCT || vector.GetType().id() == LogicalTypeId::UNION);
 
 	if (vector.GetVectorType() == VectorType::DICTIONARY_VECTOR) {
 		auto &child = DictionaryVector::Child(vector);
@@ -1549,7 +1575,7 @@ const vector<unique_ptr<Vector>> &StructVector::GetEntries(const Vector &vector)
 }
 
 const Vector &ListVector::GetEntry(const Vector &vector) {
-	D_ASSERT(vector.GetType().id() == LogicalTypeId::LIST);
+	D_ASSERT(vector.GetType().id() == LogicalTypeId::LIST || vector.GetType().id() == LogicalTypeId::MAP);
 	if (vector.GetVectorType() == VectorType::DICTIONARY_VECTOR) {
 		auto &child = DictionaryVector::Child(vector);
 		return ListVector::GetEntry(child);
@@ -1567,7 +1593,7 @@ Vector &ListVector::GetEntry(Vector &vector) {
 }
 
 void ListVector::Reserve(Vector &vector, idx_t required_capacity) {
-	D_ASSERT(vector.GetType().id() == LogicalTypeId::LIST);
+	D_ASSERT(vector.GetType().id() == LogicalTypeId::LIST || vector.GetType().id() == LogicalTypeId::MAP);
 	D_ASSERT(vector.GetVectorType() == VectorType::FLAT_VECTOR ||
 	         vector.GetVectorType() == VectorType::CONSTANT_VECTOR);
 	D_ASSERT(vector.auxiliary);
@@ -1577,10 +1603,10 @@ void ListVector::Reserve(Vector &vector, idx_t required_capacity) {
 }
 
 template <class T>
-void TemplatedSearchInMap(Vector &list, T key, vector<idx_t> &offsets, bool is_key_null, idx_t offset, idx_t length) {
-	auto &list_vector = ListVector::GetEntry(list);
+void TemplatedSearchInMap(Vector &keys, idx_t count, T key, vector<idx_t> &offsets, bool is_key_null, idx_t offset,
+                          idx_t length) {
 	UnifiedVectorFormat vector_data;
-	list_vector.ToUnifiedFormat(ListVector::GetListSize(list), vector_data);
+	keys.ToUnifiedFormat(count, vector_data);
 	auto data = (T *)vector_data.data;
 	auto validity_mask = vector_data.validity;
 
@@ -1603,16 +1629,15 @@ void TemplatedSearchInMap(Vector &list, T key, vector<idx_t> &offsets, bool is_k
 }
 
 template <class T>
-void TemplatedSearchInMap(Vector &list, const Value &key, vector<idx_t> &offsets, bool is_key_null, idx_t offset,
-                          idx_t length) {
-	TemplatedSearchInMap<T>(list, key.template GetValueUnsafe<T>(), offsets, is_key_null, offset, length);
+void TemplatedSearchInMap(Vector &keys, idx_t count, const Value &key, vector<idx_t> &offsets, bool is_key_null,
+                          idx_t offset, idx_t length) {
+	TemplatedSearchInMap<T>(keys, count, key.template GetValueUnsafe<T>(), offsets, is_key_null, offset, length);
 }
 
-void SearchStringInMap(Vector &list, const string &key, vector<idx_t> &offsets, bool is_key_null, idx_t offset,
-                       idx_t length) {
-	auto &list_vector = ListVector::GetEntry(list);
+void SearchStringInMap(Vector &keys, idx_t count, const string &key, vector<idx_t> &offsets, bool is_key_null,
+                       idx_t offset, idx_t length) {
 	UnifiedVectorFormat vector_data;
-	list_vector.ToUnifiedFormat(ListVector::GetListSize(list), vector_data);
+	keys.ToUnifiedFormat(count, vector_data);
 	auto data = (string_t *)vector_data.data;
 	auto validity_mask = vector_data.validity;
 	if (is_key_null) {
@@ -1634,64 +1659,63 @@ void SearchStringInMap(Vector &list, const string &key, vector<idx_t> &offsets, 
 	}
 }
 
-vector<idx_t> ListVector::Search(Vector &list, const Value &key, idx_t row) {
+vector<idx_t> MapVector::Search(Vector &keys, idx_t count, const Value &key, list_entry_t &entry) {
 	vector<idx_t> offsets;
 
-	auto &list_vector = ListVector::GetEntry(list);
-	auto &entry = ListVector::GetData(list)[row];
-
-	switch (list_vector.GetType().InternalType()) {
+	switch (keys.GetType().InternalType()) {
 	case PhysicalType::BOOL:
 	case PhysicalType::INT8:
-		TemplatedSearchInMap<int8_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<int8_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::INT16:
-		TemplatedSearchInMap<int16_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<int16_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::INT32:
-		TemplatedSearchInMap<int32_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<int32_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::INT64:
-		TemplatedSearchInMap<int64_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<int64_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::INT128:
-		TemplatedSearchInMap<hugeint_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<hugeint_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::UINT8:
-		TemplatedSearchInMap<uint8_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<uint8_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::UINT16:
-		TemplatedSearchInMap<uint16_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<uint16_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::UINT32:
-		TemplatedSearchInMap<uint32_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<uint32_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::UINT64:
-		TemplatedSearchInMap<uint64_t>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<uint64_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::FLOAT:
-		TemplatedSearchInMap<float>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<float>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::DOUBLE:
-		TemplatedSearchInMap<double>(list, key, offsets, key.IsNull(), entry.offset, entry.length);
+		TemplatedSearchInMap<double>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
+		break;
+	case PhysicalType::INTERVAL:
+		TemplatedSearchInMap<interval_t>(keys, count, key, offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	case PhysicalType::VARCHAR:
-		SearchStringInMap(list, StringValue::Get(key), offsets, key.IsNull(), entry.offset, entry.length);
+		SearchStringInMap(keys, count, StringValue::Get(key), offsets, key.IsNull(), entry.offset, entry.length);
 		break;
 	default:
-		throw InvalidTypeException(list.GetType().id(), "Invalid type for List Vector Search");
+		throw InvalidTypeException(keys.GetType().id(), "Invalid type for List Vector Search");
 	}
 	return offsets;
 }
 
-Value ListVector::GetValuesFromOffsets(Vector &list, vector<idx_t> &offsets) {
-	auto &child_vec = ListVector::GetEntry(list);
+Value FlatVector::GetValuesFromOffsets(Vector &values, vector<idx_t> &offsets) {
 	vector<Value> list_values;
 	list_values.reserve(offsets.size());
 	for (auto &offset : offsets) {
-		list_values.push_back(child_vec.GetValue(offset));
+		list_values.push_back(values.GetValue(offset));
 	}
-	return Value::LIST(ListType::GetChildType(list.GetType()), move(list_values));
+	return Value::LIST(values.GetType(), std::move(list_values));
 }
 
 idx_t ListVector::GetListSize(const Vector &vec) {
@@ -1751,6 +1775,97 @@ void ListVector::Append(Vector &target, const Vector &source, const SelectionVec
 void ListVector::PushBack(Vector &target, const Value &insert) {
 	auto &target_buffer = (VectorListBuffer &)*target.auxiliary;
 	target_buffer.PushBack(insert);
+}
+
+idx_t ListVector::GetConsecutiveChildList(Vector &list, Vector &result, idx_t offset, idx_t count) {
+
+	auto info = ListVector::GetConsecutiveChildListInfo(list, offset, count);
+	if (info.needs_slicing) {
+		SelectionVector sel(info.child_list_info.length);
+		ListVector::GetConsecutiveChildSelVector(list, sel, offset, count);
+
+		result.Slice(sel, info.child_list_info.length);
+		result.Flatten(info.child_list_info.length);
+	}
+	return info.child_list_info.length;
+}
+
+ConsecutiveChildListInfo ListVector::GetConsecutiveChildListInfo(Vector &list, idx_t offset, idx_t count) {
+
+	ConsecutiveChildListInfo info;
+	UnifiedVectorFormat unified_list_data;
+	list.ToUnifiedFormat(offset + count, unified_list_data);
+	auto list_data = (list_entry_t *)unified_list_data.data;
+
+	// find the first non-NULL entry
+	idx_t first_length = 0;
+	for (idx_t i = offset; i < offset + count; i++) {
+		auto idx = unified_list_data.sel->get_index(i);
+		if (!unified_list_data.validity.RowIsValid(idx)) {
+			continue;
+		}
+		info.child_list_info.offset = list_data[idx].offset;
+		first_length = list_data[idx].length;
+		break;
+	}
+
+	// small performance improvement for constant vectors
+	// avoids iterating over all their (constant) elements
+	if (list.GetVectorType() == VectorType::CONSTANT_VECTOR) {
+		info.child_list_info.length = first_length;
+		return info;
+	}
+
+	// now get the child count and determine whether the children are stored consecutively
+	// also determine if a flat vector has pseudo constant values (all offsets + length the same)
+	// this can happen e.g. for UNNESTs
+	bool is_consecutive = true;
+	for (idx_t i = offset; i < offset + count; i++) {
+		auto idx = unified_list_data.sel->get_index(i);
+		if (!unified_list_data.validity.RowIsValid(idx)) {
+			continue;
+		}
+		if (list_data[idx].offset != info.child_list_info.offset || list_data[idx].length != first_length) {
+			info.is_constant = false;
+		}
+		if (list_data[idx].offset != info.child_list_info.offset + info.child_list_info.length) {
+			is_consecutive = false;
+		}
+		info.child_list_info.length += list_data[idx].length;
+	}
+
+	if (info.is_constant) {
+		info.child_list_info.length = first_length;
+	}
+	if (!info.is_constant && !is_consecutive) {
+		info.needs_slicing = true;
+	}
+
+	return info;
+}
+
+void ListVector::GetConsecutiveChildSelVector(Vector &list, SelectionVector &sel, idx_t offset, idx_t count) {
+
+	UnifiedVectorFormat unified_list_data;
+	list.ToUnifiedFormat(offset + count, unified_list_data);
+	auto list_data = (list_entry_t *)unified_list_data.data;
+
+	//	SelectionVector child_sel(info.second.length);
+	idx_t entry = 0;
+	for (idx_t i = offset; i < offset + count; i++) {
+		auto idx = unified_list_data.sel->get_index(i);
+		if (!unified_list_data.validity.RowIsValid(idx)) {
+			continue;
+		}
+		for (idx_t k = 0; k < list_data[idx].length; k++) {
+			//			child_sel.set_index(entry++, list_data[idx].offset + k);
+			sel.set_index(entry++, list_data[idx].offset + k);
+		}
+	}
+	//
+	//	result.Slice(child_sel, info.second.length);
+	//	result.Flatten(info.second.length);
+	//	info.second.offset = 0;
 }
 
 // Union vector

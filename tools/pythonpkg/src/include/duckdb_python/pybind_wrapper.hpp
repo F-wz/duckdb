@@ -11,6 +11,15 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <vector>
+#include "duckdb/common/assert.hpp"
+
+namespace pybind11 {
+
+bool gil_check();
+void gil_assert();
+
+} // namespace pybind11
 
 namespace duckdb {
 #ifdef __GNUG__
@@ -19,5 +28,12 @@ namespace duckdb {
 #define PYBIND11_NAMESPACE pybind11
 #endif
 namespace py = pybind11;
+
+template <class T, typename... ARGS>
+void DefineMethod(std::vector<const char *> aliases, T &mod, ARGS &&... args) {
+	for (auto &alias : aliases) {
+		mod.def(alias, args...);
+	}
+}
 
 } // namespace duckdb

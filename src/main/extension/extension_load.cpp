@@ -1,6 +1,5 @@
 #include "duckdb/common/dl.hpp"
 #include "duckdb/common/virtual_file_system.hpp"
-#include "duckdb/function/replacement_open.hpp"
 #include "duckdb/main/extension_helper.hpp"
 #include "duckdb/main/error_manager.hpp"
 #include "mbedtls_wrapper.hpp"
@@ -12,6 +11,7 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 typedef void (*ext_init_fun_t)(DatabaseInstance &);
 typedef const char *(*ext_version_fun_t)(void);
+typedef void (*ext_storage_init_t)(DBConfig &);
 
 template <class T>
 static T LoadFunctionFromDLL(void *dll, const string &function_name, const string &filename) {
@@ -22,7 +22,8 @@ static T LoadFunctionFromDLL(void *dll, const string &function_name, const strin
 	return (T)function;
 }
 
-ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *opener, const string &extension) {
+bool ExtensionHelper::TryInitialLoad(DBConfig &config, FileOpener *opener, const string &extension,
+                                     ExtensionInitResult &result, string &error) {
 	if (!config.options.enable_external_access) {
 		throw PermissionException("Loading external extensions is disabled through configuration");
 	}
@@ -31,8 +32,14 @@ ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *o
 	auto filename = fs.ConvertSeparators(extension);
 
 	// shorthand case
-	if (!StringUtil::Contains(extension, ".") && !StringUtil::Contains(extension, fs.PathSeparator())) {
-		string local_path = fs.GetHomeDirectory(opener);
+	if (!ExtensionHelper::IsFullPath(extension)) {
+		string local_path = !config.options.extension_directory.empty() ? config.options.extension_directory
+		                                                                : fs.GetHomeDirectory(opener);
+
+		// convert random separators to platform-canonic
+		local_path = fs.ConvertSeparators(local_path);
+		// expand ~ in extension directory
+		local_path = fs.ExpandPath(local_path, opener);
 		auto path_components = PathComponents();
 		for (auto &path_ele : path_components) {
 			local_path = fs.JoinPath(local_path, path_ele);
@@ -40,16 +47,16 @@ ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *o
 		string extension_name = ApplyExtensionAlias(extension);
 		filename = fs.JoinPath(local_path, extension_name + ".duckdb_extension");
 	}
-
 	if (!fs.FileExists(filename)) {
 		string message;
 		bool exact_match = ExtensionHelper::CreateSuggestions(extension, message);
 		if (exact_match) {
 			message += "\nInstall it first using \"INSTALL " + extension + "\".";
 		}
-		throw IOException("Extension \"%s\" not found.\n%s", filename, message);
+		error = StringUtil::Format("Extension \"%s\" not found.\n%s", filename, message);
+		return false;
 	}
-	{
+	if (!config.options.allow_unsigned_extensions) {
 		auto handle = fs.OpenFile(filename, FileFlags::FILE_FLAGS_READ);
 
 		// signature is the last 265 bytes of the file
@@ -75,7 +82,7 @@ ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *o
 				break;
 			}
 		}
-		if (!any_valid && !config.options.allow_unsigned_extensions) {
+		if (!any_valid) {
 			throw IOException(config.error_manager->FormatException(ErrorType::UNSIGNED_EXTENSION, filename));
 		}
 	}
@@ -114,21 +121,47 @@ ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *o
 		                            extension_version, engine_version);
 	}
 
-	ExtensionInitResult res;
-	res.basename = basename;
-	res.filename = filename;
-	res.lib_hdl = lib_hdl;
-	return res;
+	result.basename = basename;
+	result.filename = filename;
+	result.lib_hdl = lib_hdl;
+	return true;
 }
 
-void ExtensionHelper::LoadExternalExtension(ClientContext &context, const string &extension) {
-	auto &db = DatabaseInstance::GetDatabase(context);
-	auto &loaded_extensions = db.LoadedExtensions();
-	if (loaded_extensions.find(extension) != loaded_extensions.end()) {
+ExtensionInitResult ExtensionHelper::InitialLoad(DBConfig &config, FileOpener *opener, const string &extension) {
+	string error;
+	ExtensionInitResult result;
+	if (!TryInitialLoad(config, opener, extension, result, error)) {
+		throw IOException(error);
+	}
+	return result;
+}
+
+bool ExtensionHelper::IsFullPath(const string &extension) {
+	return StringUtil::Contains(extension, ".") || StringUtil::Contains(extension, "/") ||
+	       StringUtil::Contains(extension, "\\");
+}
+
+string ExtensionHelper::GetExtensionName(const string &extension) {
+	if (!IsFullPath(extension)) {
+		return extension;
+	}
+	auto splits = StringUtil::Split(StringUtil::Replace(extension, "\\", "/"), '/');
+	if (splits.empty()) {
+		return extension;
+	}
+	splits = StringUtil::Split(splits.back(), '.');
+	if (splits.empty()) {
+		return extension;
+	}
+	return StringUtil::Lower(splits.front());
+}
+
+void ExtensionHelper::LoadExternalExtension(DatabaseInstance &db, FileOpener *opener, const string &extension) {
+	if (db.ExtensionIsLoaded(extension)) {
 		return;
 	}
 
-	auto res = InitialLoad(DBConfig::GetConfig(context), FileSystem::GetFileOpener(context), extension);
+	auto res = InitialLoad(DBConfig::GetConfig(db), opener, extension);
 	auto init_fun_name = res.basename + "_init";
 
 	ext_init_fun_t init_fun;
@@ -141,39 +174,65 @@ void ExtensionHelper::LoadExternalExtension(ClientContext &context, const string
 		                            init_fun_name, res.filename, e.what());
 	}
 
-	DatabaseInstance::GetDatabase(context).SetExtensionLoaded(extension);
+	db.SetExtensionLoaded(extension);
 }
 
-unique_ptr<ReplacementOpenData> ExtensionHelper::ReplacementOpenPre(const string &extension, DBConfig &config) {
+void ExtensionHelper::LoadExternalExtension(ClientContext &context, const string &extension) {
+	LoadExternalExtension(DatabaseInstance::GetDatabase(context), FileSystem::GetFileOpener(context), extension);
+}
 
-	auto res = InitialLoad(config, nullptr, extension); // TODO opener
-	auto init_fun_name = res.basename + "_replacement_open_pre";
+void ExtensionHelper::StorageInit(string &extension, DBConfig &config) {
+	extension = ExtensionHelper::ApplyExtensionAlias(extension);
+	ExtensionInitResult res;
+	string error;
+	if (!TryInitialLoad(config, nullptr, extension, res, error)) {
+		if (!ExtensionHelper::AllowAutoInstall(extension)) {
+			throw IOException(error);
+		}
+		// the extension load failed - try installing the extension
+		if (!config.file_system) {
+			throw InternalException("Attempting to install an extension without a file system");
+		}
+		ExtensionHelper::InstallExtension(config, *config.file_system, extension, false);
+		// try loading again
+		if (!TryInitialLoad(config, nullptr, extension, res, error)) {
+			throw IOException(error);
+		}
+	}
+	auto storage_fun_name = res.basename + "_storage_init";
 
-	replacement_open_pre_t open_pre_fun;
-	open_pre_fun = LoadFunctionFromDLL<replacement_open_pre_t>(res.lib_hdl, init_fun_name, res.filename);
+	ext_storage_init_t storage_init_fun;
+	storage_init_fun = LoadFunctionFromDLL<ext_storage_init_t>(res.lib_hdl, storage_fun_name, res.filename);
 
 	try {
-		return (*open_pre_fun)(config, nullptr);
+		(*storage_init_fun)(config);
 	} catch (std::exception &e) {
-		throw InvalidInputException("Initialization function \"%s\" from file \"%s\" threw an exception: \"%s\"",
-		                            init_fun_name, res.filename, e.what());
+		throw InvalidInputException(
+		    "Storage initialization function \"%s\" from file \"%s\" threw an exception: \"%s\"", storage_fun_name,
+		    res.filename, e.what());
 	}
 }
 
-void ExtensionHelper::ReplacementOpenPost(ClientContext &context, const string &extension, DatabaseInstance &instance,
-                                          ReplacementOpenData *open_data) {
-	auto res = InitialLoad(DBConfig::GetConfig(context), FileSystem::GetFileOpener(context), extension);
-	auto init_fun_name = res.basename + "_replacement_open_post";
-
-	replacement_open_post_t open_post_fun;
-	open_post_fun = LoadFunctionFromDLL<replacement_open_post_t>(res.lib_hdl, init_fun_name, res.filename);
-
-	try {
-		(*open_post_fun)(instance, open_data);
-	} catch (std::exception &e) {
-		throw InvalidInputException("Initialization function \"%s\" from file \"%s\" threw an exception: \"%s\"",
-		                            init_fun_name, res.filename, e.what());
+string ExtensionHelper::ExtractExtensionPrefixFromPath(const string &path) {
+	auto first_colon = path.find(':');
+	if (first_colon == string::npos || first_colon < 2) { // needs to be at least two characters because windows c: ...
+		return "";
 	}
+	auto extension = path.substr(0, first_colon);
+
+	if (path.substr(first_colon, 3) == "://") {
+		// these are not extensions
+		return "";
+	}
+
+	D_ASSERT(extension.size() > 1);
+	// needs to be alphanumeric
+	for (auto &ch : extension) {
+		if (!isalnum(ch) && ch != '_') {
+			return "";
+		}
+	}
+	return extension;
 }
 
 } // namespace duckdb

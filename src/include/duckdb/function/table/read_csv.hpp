@@ -15,12 +15,14 @@
 #include "duckdb/execution/operator/persistent/parallel_csv_reader.hpp"
 #include "duckdb/execution/operator/persistent/csv_file_handle.hpp"
 #include "duckdb/execution/operator/persistent/csv_buffer.hpp"
+#include "duckdb/function/built_in_functions.hpp"
 
 namespace duckdb {
 
 class ReadCSV {
 public:
-	static unique_ptr<CSVFileHandle> OpenCSV(const BufferedCSVReaderOptions &options, ClientContext &context);
+	static unique_ptr<CSVFileHandle> OpenCSV(const string &file_path, FileCompressionType compression,
+	                                         ClientContext &context);
 };
 
 struct BaseCSVData : public TableFunctionData {
@@ -38,9 +40,10 @@ struct BaseCSVData : public TableFunctionData {
 };
 
 struct WriteCSVData : public BaseCSVData {
-	WriteCSVData(string file_path, vector<LogicalType> sql_types, vector<string> names) : sql_types(move(sql_types)) {
-		files.push_back(move(file_path));
-		options.names = move(names);
+	WriteCSVData(string file_path, vector<LogicalType> sql_types, vector<string> names)
+	    : sql_types(std::move(sql_types)) {
+		files.push_back(std::move(file_path));
+		options.names = std::move(names);
 	}
 
 	//! The SQL types to write

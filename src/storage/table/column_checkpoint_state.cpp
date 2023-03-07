@@ -24,7 +24,7 @@ ColumnCheckpointState::~ColumnCheckpointState() {
 
 unique_ptr<BaseStatistics> ColumnCheckpointState::GetStatistics() {
 	D_ASSERT(global_stats);
-	return move(global_stats);
+	return std::move(global_stats);
 }
 
 struct PartialBlockForCheckpoint : PartialBlock {
@@ -96,7 +96,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 	} // LCOV_EXCL_STOP
 
 	// merge the segment stats into the global stats
-	global_stats->Merge(*segment->stats.statistics);
+	global_stats->Merge(segment->stats.statistics);
 
 	// get the buffer of the segment and pin it
 	auto &db = column_data.GetDatabase();
@@ -104,7 +104,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 	block_id_t block_id = INVALID_BLOCK;
 	uint32_t offset_in_block = 0;
 
-	if (!segment->stats.statistics->IsConstant()) {
+	if (!segment->stats.statistics.IsConstant()) {
 		// non-constant block
 		PartialBlockAllocation allocation = partial_block_manager.GetBlockAllocation(segment_size);
 		block_id = allocation.state.block_id;
@@ -134,7 +134,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 			    &column_data, segment.get(), *allocation.block_manager, allocation.state);
 		}
 		// Writer will decide whether to reuse this block.
-		partial_block_manager.RegisterPartialBlock(move(allocation));
+		partial_block_manager.RegisterPartialBlock(std::move(allocation));
 	} else {
 		// constant block: no need to write anything to disk besides the stats
 		// set up the compression function to constant
@@ -145,7 +145,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 	}
 
 	// construct the data pointer
-	DataPointer data_pointer;
+	DataPointer data_pointer(segment->stats.statistics.Copy());
 	data_pointer.block_pointer.block_id = block_id;
 	data_pointer.block_pointer.offset = offset_in_block;
 	data_pointer.row_start = row_group.start;
@@ -155,11 +155,10 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 	}
 	data_pointer.tuple_count = tuple_count;
 	data_pointer.compression_type = segment->function->type;
-	data_pointer.statistics = segment->stats.statistics->Copy();
 
 	// append the segment to the new segment tree
-	new_tree.AppendSegment(move(segment));
-	data_pointers.push_back(move(data_pointer));
+	new_tree.AppendSegment(std::move(segment));
+	data_pointers.push_back(std::move(data_pointer));
 }
 
 void ColumnCheckpointState::WriteDataPointers(RowGroupWriter &writer) {

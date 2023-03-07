@@ -30,15 +30,20 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Calendar;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 public class DuckDBResultSet implements ResultSet {
 
 	// Constant to construct BigDecimals from hugeint_t
 	private final static BigDecimal ULONG_MULTIPLIER = new BigDecimal("18446744073709551616");
 
-	private DuckDBPreparedStatement stmt;
-	private DuckDBResultSetMetaData meta;
+	private final DuckDBPreparedStatement stmt;
+	private final DuckDBResultSetMetaData meta;
 
+	/**
+	 * {@code null} if this result set is closed.
+	 */
 	private ByteBuffer result_ref;
 	private DuckDBVector[] current_chunk = {};
 	private int chunk_idx = 0;
@@ -47,9 +52,9 @@ public class DuckDBResultSet implements ResultSet {
 
 	public DuckDBResultSet(DuckDBPreparedStatement stmt, DuckDBResultSetMetaData meta, ByteBuffer result_ref)
 			throws SQLException {
-		this.stmt = stmt;
-		this.result_ref = result_ref;
-		this.meta = meta;
+		this.stmt = Objects.requireNonNull(stmt);
+		this.result_ref = Objects.requireNonNull(result_ref);
+		this.meta = Objects.requireNonNull(meta);
 	}
 
 	public Statement getStatement() throws SQLException {
@@ -88,11 +93,15 @@ public class DuckDBResultSet implements ResultSet {
 	public synchronized void close() throws SQLException {
 		if (result_ref != null) {
 			DuckDBNative.duckdb_jdbc_free_result(result_ref);
+			// Nullness is used to determine whether we're closed
 			result_ref = null;
+
+			// isCloseOnCompletion() throws if already closed, and we can't check for isClosed() because it could change between
+			// when we check and call isCloseOnCompletion, so access the field directly.
+			if (stmt.closeOnCompletion) {
+				stmt.close();
+			}
 		}
-		stmt = null;
-		meta = null;
-		current_chunk = null;
 	}
 
 	protected void finalize() throws Throwable {
@@ -196,6 +205,10 @@ public class DuckDBResultSet implements ResultSet {
 			return getJsonObject(columnIndex);
 		case INTERVAL:
 			return getLazyString(columnIndex);
+		case BLOB:
+			return getBlob(columnIndex);
+		case UUID:
+			return getUuid(columnIndex);
 		default:
 			throw new SQLException("Not implemented type: " + meta.column_types_string[columnIndex - 1]);
 		}
@@ -371,7 +384,8 @@ public class DuckDBResultSet implements ResultSet {
 		if (check_and_null(columnIndex)) {
 			return 0;
 		}
-		if (isType(columnIndex, DuckDBColumnType.BIGINT)) {
+		if (isType(columnIndex, DuckDBColumnType.BIGINT)
+			   || isType(columnIndex, DuckDBColumnType.TIMESTAMP)) {
 			return getbuf(columnIndex, 8).getLong();
 		}
 		Object o = getObject(columnIndex);
@@ -548,6 +562,23 @@ public class DuckDBResultSet implements ResultSet {
 		}
 		Object o = getObject(columnIndex);
 		return OffsetDateTime.parse(o.toString());
+	}
+
+	public UUID getUuid(int columnIndex) throws SQLException {
+		if (check_and_null(columnIndex)) {
+			return null;
+		}
+
+		if (isType(columnIndex, DuckDBColumnType.UUID)) {
+			ByteBuffer buffer = getbuf(columnIndex, 16);
+			long leastSignificantBits = buffer.getLong();
+
+			// Account for unsigned
+			long mostSignificantBits = buffer.getLong() - Long.MAX_VALUE - 1;
+			return new UUID(mostSignificantBits, leastSignificantBits);
+		}
+		Object o = getObject(columnIndex);
+		return UUID.fromString(o.toString());
 	}
 
 	static class DuckDBBlobResult implements Blob {
@@ -1352,7 +1383,8 @@ public class DuckDBResultSet implements ResultSet {
 				throw new SQLException("Can't convert value to integer " + type.toString());
 			}
 		} else if (type == Long.class) {
-			if (sqlType == DuckDBColumnType.BIGINT) {
+			if (sqlType == DuckDBColumnType.BIGINT
+					|| sqlType == DuckDBColumnType.TIMESTAMP) {
 				return type.cast(getLong(columnIndex));
 			} else if (sqlType == DuckDBColumnType.UINTEGER) {
 				throw new SQLException("Can't convert value to long " + type.toString());

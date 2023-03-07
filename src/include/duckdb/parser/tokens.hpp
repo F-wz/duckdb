@@ -16,9 +16,11 @@ namespace duckdb {
 class SQLStatement;
 
 class AlterStatement;
+class AttachStatement;
 class CallStatement;
 class CopyStatement;
 class CreateStatement;
+class DetachStatement;
 class DeleteStatement;
 class DropStatement;
 class ExtensionStatement;
@@ -39,6 +41,7 @@ class SetVariableStatement;
 class ResetVariableStatement;
 class LoadStatement;
 class LogicalPlanStatement;
+class MultiStatement;
 
 //===--------------------------------------------------------------------===//
 // Query Node
@@ -87,12 +90,12 @@ class ForeignKeyConstraint;
 class TableRef;
 
 class BaseTableRef;
-class CrossProductRef;
 class JoinRef;
 class SubqueryRef;
 class TableFunctionRef;
 class EmptyTableRef;
 class ExpressionListRef;
+class PivotRef;
 
 //===--------------------------------------------------------------------===//
 // Other

@@ -78,6 +78,11 @@
 #include "inet-extension.hpp"
 #endif
 
+// Load the generated header file containing our list of extension headers
+#if defined(OOTE_HEADERS_AVAILABLE) && OOTE_HEADERS_AVAILABLE
+#include "extension_oote_loader.hpp"
+#endif
+
 namespace duckdb {
 
 //===--------------------------------------------------------------------===//
@@ -92,6 +97,7 @@ static DefaultExtension internal_extensions[] = {
     {"httpfs", "Adds support for reading and writing files over a HTTP(S) connection", HTTPFS_STATICALLY_LOADED},
     {"json", "Adds support for JSON operations", JSON_STATICALLY_LOADED},
     {"jemalloc", "Overwrites system allocator with JEMalloc", JEMALLOC_STATICALLY_LOADED},
+    {"motherduck", "Enables motherduck integration with the system", false},
     {"sqlite_scanner", "Adds support for reading SQLite database files", false},
     {"postgres_scanner", "Adds support for reading from a Postgres database", false},
     {"inet", "Adds support for IP-related data types and functions", false},
@@ -110,6 +116,21 @@ DefaultExtension ExtensionHelper::GetDefaultExtension(idx_t index) {
 }
 
 //===--------------------------------------------------------------------===//
+// Allow Auto-Install Extensions
+//===--------------------------------------------------------------------===//
+static const char *auto_install[] = {"motherduck", "postgres_scanner", "sqlite_scanner", nullptr};
+
+bool ExtensionHelper::AllowAutoInstall(const string &extension) {
+	auto lcase = StringUtil::Lower(extension);
+	for (idx_t i = 0; auto_install[i]; i++) {
+		if (lcase == auto_install[i]) {
+			return true;
+		}
+	}
+	return false;
+}
+
+//===--------------------------------------------------------------------===//
 // Load Statically Compiled Extension
 //===--------------------------------------------------------------------===//
 void ExtensionHelper::LoadAllExtensions(DuckDB &db) {
@@ -118,6 +139,12 @@ void ExtensionHelper::LoadAllExtensions(DuckDB &db) {
 	for (auto &ext : extensions) {
 		LoadExtensionInternal(db, ext, true);
 	}
+
+#if defined(OOTE_HEADERS_AVAILABLE) && OOTE_HEADERS_AVAILABLE
+	for (auto &ext : OOT_EXTENSIONS) {
+		LoadExtensionInternal(db, ext, true);
+	}
+#endif
 }
 
 ExtensionLoadResult ExtensionHelper::LoadExtension(DuckDB &db, const std::string &extension) {
@@ -226,7 +253,12 @@ ExtensionLoadResult ExtensionHelper::LoadExtensionInternal(DuckDB &db, const std
 		return ExtensionLoadResult::NOT_LOADED;
 #endif
 	} else {
-		// unknown extension
+
+#if defined(OOTE_HEADERS_AVAILABLE) && OOTE_HEADERS_AVAILABLE
+		if (TryLoadLinkedExtension(db, extension)) {
+			return ExtensionLoadResult::LOADED_EXTENSION;
+		}
+#endif
 		return ExtensionLoadResult::EXTENSION_UNKNOWN;
 	}
 	return ExtensionLoadResult::LOADED_EXTENSION;

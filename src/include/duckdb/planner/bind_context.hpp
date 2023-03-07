@@ -9,8 +9,6 @@
 #pragma once
 
 #include "duckdb/catalog/catalog.hpp"
-#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
-#include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/unordered_set.hpp"
@@ -27,6 +25,9 @@ class LogicalGet;
 class BoundQueryNode;
 
 class StarExpression;
+
+class TableCatalogEntry;
+class TableFunctionCatalogEntry;
 
 struct UsingColumnSet {
 	string primary_binding;
@@ -63,6 +64,8 @@ public:
 	unique_ptr<ParsedExpression> CreateColumnReference(const string &table_name, const string &column_name);
 	unique_ptr<ParsedExpression> CreateColumnReference(const string &schema_name, const string &table_name,
 	                                                   const string &column_name);
+	unique_ptr<ParsedExpression> CreateColumnReference(const string &catalog_name, const string &schema_name,
+	                                                   const string &table_name, const string &column_name);
 
 	//! Generate column expressions for all columns that are present in the
 	//! referenced tables. This is used to resolve the * expression in a
@@ -80,7 +83,7 @@ public:
 
 	//! Adds a base table with the given alias to the BindContext.
 	void AddBaseTable(idx_t index, const string &alias, const vector<string> &names, const vector<LogicalType> &types,
-	                  vector<column_t> &bound_column_ids, StandardEntry *entry);
+	                  vector<column_t> &bound_column_ids, StandardEntry *entry, bool add_row_id = true);
 	//! Adds a call to a table function with the given alias to the BindContext.
 	void AddTableFunction(idx_t index, const string &alias, const vector<string> &names,
 	                      const vector<LogicalType> &types, vector<column_t> &bound_column_ids, StandardEntry *entry);
@@ -138,6 +141,8 @@ public:
 
 	//! Add all the bindings from a BindContext to this BindContext. The other BindContext is destroyed in the process.
 	void AddContext(BindContext other);
+	//! For semi and anti joins we remove the binding context of the right table after binding the condition.
+	void RemoveContext(vector<std::pair<string, duckdb::Binding *>> &other_bindings_list);
 
 	//! Gets a binding of the specified name. Returns a nullptr and sets the out_error if the binding could not be
 	//! found.

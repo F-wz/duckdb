@@ -15,9 +15,7 @@
 
 namespace duckdb {
 
-UndoBuffer::UndoBuffer(const shared_ptr<ClientContext> &context_p)
-    : context(*context_p), allocator(BufferAllocator::Get(*context_p)) {
-	D_ASSERT(context_p);
+UndoBuffer::UndoBuffer(ClientContext &context_p) : context(context_p), allocator(BufferAllocator::Get(context_p)) {
 }
 
 data_ptr_t UndoBuffer::CreateEntry(UndoFlags type, idx_t len) {
