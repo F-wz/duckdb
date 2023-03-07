@@ -354,7 +354,6 @@ bool DBConfig::operator!=(const DBConfig &other) {
 
 DBConfig::DBConfig(DBConfig&& db_config) 
   :	replacement_scans		(std::move(db_config.replacement_scans)),
-	replacement_opens		(std::move(db_config.replacement_opens)),
 	extension_parameters	(std::move(db_config.extension_parameters)),
 	file_system				(std::move(db_config.file_system)),
 	allocator				(std::move(db_config.allocator)),
@@ -371,7 +370,6 @@ DBConfig::DBConfig(DBConfig&& db_config)
 
 DBConfig& DBConfig::operator=(DBConfig&& db_config) {
 	this->replacement_scans		= std::move(db_config.replacement_scans);
-	this->replacement_opens		= std::move(db_config.replacement_opens);
 	this->extension_parameters	= std::move(db_config.extension_parameters);
 	this->file_system			= std::move(db_config.file_system);
 	this->allocator				= std::move(db_config.allocator);
